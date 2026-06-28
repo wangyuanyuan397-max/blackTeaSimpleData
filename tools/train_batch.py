@@ -643,6 +643,7 @@ def run_config_file(
     except Exception:
         status = 'failed'
         error_text = traceback.format_exc()
+        print(error_text)
         failure_path = run_directory / 'failure.txt'
         failure_path.write_text(error_text, encoding='utf-8')
         if trainer is not None:
