@@ -1,0 +1,12 @@
+torch
+torchvision
+timm
+numpy
+pandas
+Pillow
+PyYAML
+pydantic>=2
+scikit-learn
+matplotlib
+structlog
+tqdm
