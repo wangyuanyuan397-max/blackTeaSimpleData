@@ -81,7 +81,7 @@ MODEL_LIST = (
 
 # 所有模型共享同一套当前任务设置，数据不会重新划分，也不执行旧式滑窗投票或额外分析。
 CURRENT_TASK_SETTINGS = {
-    'random_seed': 42,
+    'random_seed': 2026,
     'class_to_idx': FIXED_CLASS_TO_IDX,
     'data': {
         'type': 'image_folder',
@@ -90,14 +90,14 @@ CURRENT_TASK_SETTINGS = {
         'test_transform': {'type': 'patch_eval_224', 'image_size': 224},
     },
     'train': {
-        'epochs': 30,
+        'epochs': 150,
         'batch_size': 32,
         'val_batch_size': 64,
         'test_batch_size': 64,
         'accumulation_steps': 1,
         'num_workers': 4,
         'weighted_sampler': False,
-        'patience': 8,
+        'patience': 30,
         'selection_metric': 'val_acc',
         'selection_mode': 'max',
         'selection_min_delta': 0.0,
