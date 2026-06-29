@@ -3,6 +3,7 @@
 from .resnet import ResNet50
 from .safnet import SAFNetBackbone
 from .torchvision_wrapper import TorchvisionBackbone
+from .efficientnet_ablation import EfficientNetV2SAblationBackbone
 from .efficientnet_gated import (
     EfficientNetV2SGatedRefinementBackbone,
     EfficientNetV2SMultiStageGatedFusionBackbone,
@@ -23,6 +24,7 @@ except ModuleNotFoundError as exc:
     TimmBackbone = None
 
 __all__ = [
+    'EfficientNetV2SAblationBackbone',
     'EfficientNetV2SGatedRefinementBackbone',
     'EfficientNetV2SMultiStageGatedFusionBackbone',
     "MambaOutTinyCEBackbone",

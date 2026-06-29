@@ -73,6 +73,53 @@ MODEL_LIST = (
         'head': {'type': 'linear', 'drop_rate': 0.0},
     },
     {
+        'name': 'efficientnet_v2_s_ablation_linear',
+        'backbone': {
+            'type': 'efficientnet_v2_s_ablation',
+            'variant': 'linear',
+            'pretrained': True,
+            'num_classes': 4,
+            'final_dropout': 0.2,
+        },
+        'head': {'type': 'identity', 'drop_rate': 0.0},
+    },
+    {
+        'name': 'efficientnet_v2_s_ablation_mlp',
+        'backbone': {
+            'type': 'efficientnet_v2_s_ablation',
+            'variant': 'mlp',
+            'pretrained': True,
+            'num_classes': 4,
+            'final_dropout': 0.2,
+            'mlp_hidden_dim': 512,
+        },
+        'head': {'type': 'identity', 'drop_rate': 0.0},
+    },
+    {
+        'name': 'efficientnet_v2_s_ablation_conv_refine',
+        'backbone': {
+            'type': 'efficientnet_v2_s_ablation',
+            'variant': 'conv_refine',
+            'pretrained': True,
+            'num_classes': 4,
+            'final_dropout': 0.2,
+            'refine_hidden_channels': 256,
+        },
+        'head': {'type': 'identity', 'drop_rate': 0.0},
+    },
+    {
+        'name': 'efficientnet_v2_s_ablation_se_refine',
+        'backbone': {
+            'type': 'efficientnet_v2_s_ablation',
+            'variant': 'se_refine',
+            'pretrained': True,
+            'num_classes': 4,
+            'final_dropout': 0.2,
+            'se_reduction': 16,
+        },
+        'head': {'type': 'identity', 'drop_rate': 0.0},
+    },
+    {
         'name': 'efficientnet_v2_s_gated_refinement',
         'backbone': {
             'type': 'efficientnet_v2_s_gated_refinement',
@@ -101,11 +148,14 @@ MODEL_LIST = (
 # ============================== PyCharm 右键运行配置区 ==============================
 # 你在 PyCharm 里直接右键运行 tools/train_batch.py 时，默认就会读取下面这几个变量。
 # 如果临时从命令行传入 --models，则命令行指定的模型会覆盖这个列表。
-# 这里默认只跑 EfficientNetV2-S 原版和两条新改法，方便做同系列公平对比实验。
+# 这里默认跑 EfficientNetV2-S 消融组和 Gated-refinement 目标方法，方便一次生成对照表。
 PYCHARM_MODEL_NAMES = (
-    'efficientnet_v2_s',
+    'efficientnet_v2_s_ablation_linear',
+    'efficientnet_v2_s_ablation_mlp',
+    'efficientnet_v2_s_ablation_conv_refine',
+    'efficientnet_v2_s_ablation_se_refine',
     'efficientnet_v2_s_gated_refinement',
-    'efficientnet_v2_s_multistage_gated_fusion',
+    'efficientnet_v2_s_multistage_gated_fusion'
 )
 
 # 如果你想右键运行时直接跑全部候选模型，可以把上面的 PYCHARM_MODEL_NAMES 改成这一行：
