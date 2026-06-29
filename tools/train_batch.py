@@ -73,6 +73,25 @@ MODEL_LIST = (
         'head': {'type': 'linear', 'drop_rate': 0.0},
     },
     {
+        'name': 'efficientnet_v2_s_gated_refinement',
+        'backbone': {
+            'type': 'efficientnet_v2_s_gated_refinement',
+            'pretrained': True,
+            'refine_channels': 256,
+        },
+        'head': {'type': 'linear', 'drop_rate': 0.0},
+    },
+    {
+        'name': 'efficientnet_v2_s_multistage_gated_fusion',
+        'backbone': {
+            'type': 'efficientnet_v2_s_multistage_gated_fusion',
+            'pretrained': True,
+            'fusion_channels': 256,
+            'gate_hidden_channels': 128,
+        },
+        'head': {'type': 'linear', 'drop_rate': 0.0},
+    },
+    {
         'name': 'convnext_tiny',
         'backbone': {'type': 'torchvision', 'model_name': 'convnext_tiny', 'pretrained': True},
         'head': {'type': 'linear', 'drop_rate': 0.0},
