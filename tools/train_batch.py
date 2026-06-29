@@ -98,6 +98,28 @@ MODEL_LIST = (
     },
 )
 
+# ============================== PyCharm 右键运行配置区 ==============================
+# 你在 PyCharm 里直接右键运行 tools/train_batch.py 时，默认就会读取下面这几个变量。
+# 如果临时从命令行传入 --models，则命令行指定的模型会覆盖这个列表。
+# 这里默认只跑 EfficientNetV2-S 原版和两条新改法，方便做同系列公平对比实验。
+PYCHARM_MODEL_NAMES = (
+    'efficientnet_v2_s',
+    'efficientnet_v2_s_gated_refinement',
+    'efficientnet_v2_s_multistage_gated_fusion',
+)
+
+# 如果你想右键运行时直接跑全部候选模型，可以把上面的 PYCHARM_MODEL_NAMES 改成这一行：
+# PYCHARM_MODEL_NAMES = tuple(str(model_spec['name']) for model_spec in MODEL_LIST)
+
+# PyCharm 右键运行时使用的设备；auto 表示有 CUDA 就用 CUDA，否则自动退回 CPU。
+PYCHARM_DEVICE = 'auto'
+
+# PyCharm 右键运行时是否只检查配置和数据，不真正训练；正式实验保持 False。
+PYCHARM_DRY_RUN = False
+
+# PyCharm 右键运行时是否遇到第一个失败模型就停止；False 会记录失败并继续后面的模型。
+PYCHARM_FAIL_FAST = False
+
 # 所有模型共享同一套当前任务设置，数据不会重新划分，也不执行旧式滑窗投票或额外分析。
 CURRENT_TASK_SETTINGS = {
     'random_seed': 2026,
@@ -808,18 +830,18 @@ def parse_code_list_arguments() -> argparse.Namespace:
 def parse_model_list_arguments() -> argparse.Namespace:
     '''解析当前任务模型列表的运行参数。'''
     parser = argparse.ArgumentParser(
-        description='直接用固定 train/val/test patch 数据运行代码内 MODEL_LIST。'
+        description='直接用固定 train/val/test patch 数据运行代码内 PYCHARM_MODEL_NAMES。'
     )
     parser.add_argument(
         '--models',
         nargs='+',
-        help='只运行指定模型，例如：--models resnet50 convnext_tiny。',
+        help='只运行指定模型；不写时使用代码顶部的 PYCHARM_MODEL_NAMES。',
     )
     parser.add_argument(
         '--device',
         choices=('auto', 'cuda', 'cpu'),
-        default='auto',
-        help='训练设备（默认：auto，优先使用 CUDA）。',
+        default=PYCHARM_DEVICE,
+        help=f'训练设备（默认读取 PYCHARM_DEVICE={PYCHARM_DEVICE!r}）。',
     )
     parser.add_argument(
         '--list-models',
@@ -829,23 +851,26 @@ def parse_model_list_arguments() -> argparse.Namespace:
     parser.add_argument(
         '--dry-run',
         action='store_true',
+        default=PYCHARM_DRY_RUN,
         help='检查模型配置和固定数据集，不创建 runs 或训练模型。',
     )
     parser.add_argument(
         '--fail-fast',
         action='store_true',
+        default=PYCHARM_FAIL_FAST,
         help='任一模型失败后立即停止；默认记录失败并继续下一模型。',
     )
     return parser.parse_args()
 
 
 def main() -> None:
-    '''用统一的当前任务设置顺序运行代码内七个唯一模型。'''
+    '''用统一的当前任务设置顺序运行代码内指定的模型列表。'''
     args = parse_model_list_arguments()
-    selected_models = select_models(MODEL_LIST, args.models)
+    requested_model_names = args.models if args.models else list(PYCHARM_MODEL_NAMES)
+    selected_models = select_models(MODEL_LIST, requested_model_names or None)
 
     if args.list_models:
-        print('代码内 MODEL_LIST：')
+        print('本次将运行的代码内模型列表：')
         for model_spec in selected_models:
             print('  - ' + str(model_spec.get('name')))
         return
@@ -865,6 +890,10 @@ def main() -> None:
     ]
     dataset_summary = validate_fixed_dataset(preview_configs[0], device)
     print_dataset_summary(dataset_summary)
+    if args.models:
+        print('模型选择来源：命令行 --models。')
+    else:
+        print('模型选择来源：代码顶部 PYCHARM_MODEL_NAMES，适合 PyCharm 右键直接运行。')
     print('本次模型列表：' + ', '.join(str(spec.get('name')) for spec in selected_models))
     print(f'固定数据集相对路径：{DATASET_ROOT.as_posix()}')
     print('训练方式：统一交叉熵；不使用旧 YAML、SFI、soft-label、LOGOCV 或滑窗投票。')
