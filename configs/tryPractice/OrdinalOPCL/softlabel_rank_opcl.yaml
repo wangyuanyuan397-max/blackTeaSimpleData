@@ -1,0 +1,28 @@
+name: softlabel_rank_opcl
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: efficientnet_v2_s_ordinal_opcl
+    pretrained: true
+    num_classes: 4
+    final_dropout: 0.2
+    enable_rank: true
+    enable_projection: true
+    enable_prototypes: true
+    projection_hidden_dim: 256
+    embedding_dim: 128
+    projection_dropout: 0.1
+    temperature: 0.1
+  head:
+    type: identity
+    drop_rate: 0.0
+loss:
+  type: ordinal_opcl
+  num_classes: 4
+  classification_mode: softlabel
+  use_rank: true
+  prototype_mode: opcl
+  lambda_rank: 1.0
+  alpha_proto: 0.1
+  gamma: 0.1

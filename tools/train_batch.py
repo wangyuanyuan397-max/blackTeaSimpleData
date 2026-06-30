@@ -2,6 +2,7 @@
 
 import argparse
 import copy
+import csv
 import gc
 import html
 import json
@@ -21,37 +22,76 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 COMMON_CONFIG = Path('configs/fixed_split_patches_train.yaml')
 CONFIG_LIST = (
-    Path('configs/tryPractice/Attention/baseline.yaml'),
-    Path('configs/tryPractice/Attention/eca_p1.yaml'),
-    Path('configs/tryPractice/Attention/eca_p2.yaml'),
-    Path('configs/tryPractice/Attention/eca_p3.yaml'),
-    Path('configs/tryPractice/Attention/eca_p4.yaml'),
-    Path('configs/tryPractice/Attention/eca_p5.yaml'),
-    Path('configs/tryPractice/Attention/eca_p6.yaml'),
-    Path('configs/tryPractice/Attention/eca_p46.yaml'),
-    Path('configs/tryPractice/Attention/eca_p56.yaml'),
-    Path('configs/tryPractice/Attention/eca_p456.yaml'),
-    Path('configs/tryPractice/Attention/eca_pall.yaml'),
-    Path('configs/tryPractice/Attention/cbam_p1.yaml'),
-    Path('configs/tryPractice/Attention/cbam_p2.yaml'),
-    Path('configs/tryPractice/Attention/cbam_p3.yaml'),
-    Path('configs/tryPractice/Attention/cbam_p4.yaml'),
-    Path('configs/tryPractice/Attention/cbam_p5.yaml'),
-    Path('configs/tryPractice/Attention/cbam_p6.yaml'),
-    Path('configs/tryPractice/Attention/cbam_p46.yaml'),
-    Path('configs/tryPractice/Attention/cbam_p56.yaml'),
-    Path('configs/tryPractice/Attention/cbam_p456.yaml'),
-    Path('configs/tryPractice/Attention/cbam_pall.yaml'),
-    Path('configs/tryPractice/Attention/ca_p1.yaml'),
-    Path('configs/tryPractice/Attention/ca_p2.yaml'),
-    Path('configs/tryPractice/Attention/ca_p3.yaml'),
-    Path('configs/tryPractice/Attention/ca_p4.yaml'),
-    Path('configs/tryPractice/Attention/ca_p5.yaml'),
-    Path('configs/tryPractice/Attention/ca_p6.yaml'),
-    Path('configs/tryPractice/Attention/ca_p46.yaml'),
-    Path('configs/tryPractice/Attention/ca_p56.yaml'),
-    Path('configs/tryPractice/Attention/ca_p456.yaml'),
-    Path('configs/tryPractice/Attention/ca_pall.yaml'),
+    # Route A：baseline + 4 种模块 × 7 个位置，共 29 组。
+    Path('configs/tryPractice/MultiScaleFeatureFusion/baseline.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msk_p3.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msk_p4.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msk_p5.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msk_p6.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msk_p46.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msk_p56.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msk_p456.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msd_p3.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msd_p4.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msd_p5.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msd_p6.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msd_p46.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msd_p56.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msd_p456.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msp_p3.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msp_p4.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msp_p5.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msp_p6.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msp_p46.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msp_p56.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msp_p456.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msh_p3.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msh_p4.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msh_p5.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msh_p6.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msh_p46.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msh_p56.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msh_p456.yaml'),
+    # Route B：4 种 neck 融合 × 6 个 stage 组合，共 24 组（共享上面的 baseline）。
+    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_concat_f36.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_concat_f46.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_concat_f56.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_concat_f346.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_concat_f456.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_concat_f3456.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_add_f36.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_add_f46.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_add_f56.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_add_f346.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_add_f456.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_add_f3456.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_weighted_f36.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_weighted_f46.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_weighted_f56.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_weighted_f346.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_weighted_f456.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_weighted_f3456.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_attn_f36.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_attn_f46.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_attn_f56.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_attn_f346.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_attn_f456.yaml'),
+    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_attn_f3456.yaml'),
+    # 文中推荐的候选组合；真正的 best 组合应由前两轮结果决定。
+    Path('configs/tryPractice/MultiScaleFeatureFusion/combined/combined_msd_p6_neck_concat_f46.yaml'),
+    # Ordinal OPCL：独立的 V0～V11，追加在现有实验之后。
+    Path('configs/tryPractice/OrdinalOPCL/baseline_ce.yaml'),
+    Path('configs/tryPractice/OrdinalOPCL/ce_projection_only.yaml'),
+    Path('configs/tryPractice/OrdinalOPCL/ce_proto.yaml'),
+    Path('configs/tryPractice/OrdinalOPCL/ce_ordinal_soft_proto.yaml'),
+    Path('configs/tryPractice/OrdinalOPCL/ce_opcl.yaml'),
+    Path('configs/tryPractice/OrdinalOPCL/ce_rank.yaml'),
+    Path('configs/tryPractice/OrdinalOPCL/ce_rank_proto.yaml'),
+    Path('configs/tryPractice/OrdinalOPCL/ce_rank_ordinal_soft_proto.yaml'),
+    Path('configs/tryPractice/OrdinalOPCL/ce_rank_opcl.yaml'),
+    Path('configs/tryPractice/OrdinalOPCL/softlabel.yaml'),
+    Path('configs/tryPractice/OrdinalOPCL/softlabel_rank.yaml'),
+    Path('configs/tryPractice/OrdinalOPCL/softlabel_rank_opcl.yaml'),
 )
 
 # 在 PyCharm 中右键运行前，只需要编辑上面的 YAML 路径列表。
@@ -224,11 +264,33 @@ def compute_classification_details(
                 right_to_left / right_total if right_total else 0.0
             ),
         }
+
+    adjacent_error_count = 0
+    distant_error_count = 0
+    for true_index in range(len(class_names)):
+        for predicted_index in range(len(class_names)):
+            if true_index == predicted_index:
+                continue
+            error_count = int(confusion_matrix[true_index, predicted_index])
+            if abs(true_index - predicted_index) == 1:
+                adjacent_error_count += error_count
+            else:
+                distant_error_count += error_count
+    total_error_count = adjacent_error_count + distant_error_count
     return {
         'macro_f1': sum(f1_values) / len(f1_values) if f1_values else 0.0,
         'class_wise_metrics': class_wise_metrics,
         'normalized_confusion_matrix': normalized_confusion_matrix,
         'adjacent_confusions': adjacent_confusions,
+        'total_error_count': total_error_count,
+        'adjacent_error_count': adjacent_error_count,
+        'distant_error_count': distant_error_count,
+        'adjacent_error_rate': (
+            adjacent_error_count / total_error_count if total_error_count else 0.0
+        ),
+        'distant_error_rate': (
+            distant_error_count / total_error_count if total_error_count else 0.0
+        ),
     }
 
 
@@ -324,6 +386,196 @@ def measure_inference_time(
     }
 
 
+ORDINAL_REPRESENTATION_RUNS = {
+    'baseline_ce',
+    'ce_proto',
+    'ce_opcl',
+    'ce_rank_opcl',
+    'softlabel_rank_opcl',
+}
+
+
+def save_ordinal_representation_artifacts(trainer: Trainer) -> Dict[str, Any]:
+    '''为指定 OPCL 版本保存表征、t-SNE、rank 预测和 prototype 距离。'''
+    run_name = str(getattr(trainer.config, 'run_name', '') or '')
+    if run_name not in ORDINAL_REPRESENTATION_RUNS:
+        return {}
+
+    model = trainer.model
+    was_training = model.training
+    model.eval()
+    representations = []
+    labels_all = []
+    predictions_all = []
+    paths_all: List[str] = []
+    rank_predictions = []
+    normalized_prototypes = None
+
+    with torch.no_grad():
+        for batch in trainer.test_loader:
+            images = batch[0].to(trainer.device)
+            labels = batch[1]
+            paths = batch[2] if len(batch) >= 3 else [''] * int(labels.shape[0])
+            outputs = model(images)
+            if not isinstance(outputs, tuple) or len(outputs) < 2:
+                raise RuntimeError('Ordinal OPCL 模型必须返回 (logits, auxiliary)。')
+            logits, auxiliary = outputs[0], outputs[1]
+            representation = auxiliary.get('embedding')
+            if representation is None:
+                representation = auxiliary.get('feature')
+            if representation is None:
+                raise RuntimeError('模型没有返回 embedding 或 feature。')
+            representations.append(representation.detach().cpu())
+            labels_all.append(labels.detach().cpu())
+            predictions_all.append(logits.argmax(dim=1).detach().cpu())
+            paths_all.extend(str(path) for path in paths)
+            if auxiliary.get('rank_pred') is not None:
+                rank_predictions.append(auxiliary['rank_pred'].detach().cpu().view(-1))
+            if auxiliary.get('prototypes') is not None:
+                normalized_prototypes = auxiliary['prototypes'].detach().cpu()
+    model.train(was_training)
+
+    representation_tensor = torch.cat(representations, dim=0)
+    label_tensor = torch.cat(labels_all, dim=0)
+    prediction_tensor = torch.cat(predictions_all, dim=0)
+    artifact_path = trainer.output_dir / 'representation_features.pt'
+    torch.save(
+        {
+            'run_name': run_name,
+            'representations': representation_tensor,
+            'labels': label_tensor,
+            'predictions': prediction_tensor,
+            'paths': paths_all,
+            'representation_type': (
+                'embedding'
+                if representation_tensor.shape[1] != 1280
+                else 'backbone_feature'
+            ),
+        },
+        artifact_path,
+    )
+
+    if rank_predictions:
+        rank_tensor = torch.cat(rank_predictions, dim=0)
+        with (trainer.output_dir / 'ordinal_rank_predictions.csv').open(
+            'w',
+            encoding='utf-8-sig',
+            newline='',
+        ) as file:
+            writer = csv.writer(file)
+            writer.writerow(
+                ['path', 'true_class', 'rank_target', 'rank_prediction']
+            )
+            for path, label, rank_prediction in zip(
+                paths_all,
+                label_tensor.tolist(),
+                rank_tensor.tolist(),
+            ):
+                writer.writerow(
+                    [path, label, float(label) / 3.0, float(rank_prediction)]
+                )
+
+    try:
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        from sklearn.manifold import TSNE
+
+        sample_count = int(representation_tensor.shape[0])
+        perplexity = min(30.0, max(2.0, float(sample_count - 1) / 3.0))
+        tsne = TSNE(
+            n_components=2,
+            perplexity=perplexity,
+            init='pca',
+            learning_rate='auto',
+            random_state=2026,
+        )
+        coordinates = tsne.fit_transform(representation_tensor.numpy())
+        class_names = list(trainer.test_loader.dataset.classes)
+        with (trainer.output_dir / 'representation_tsne.csv').open(
+            'w',
+            encoding='utf-8-sig',
+            newline='',
+        ) as file:
+            writer = csv.writer(file)
+            writer.writerow(['path', 'true_class', 'predicted_class', 'tsne_x', 'tsne_y'])
+            for path, label, prediction, coordinate in zip(
+                paths_all,
+                label_tensor.tolist(),
+                prediction_tensor.tolist(),
+                coordinates,
+            ):
+                writer.writerow(
+                    [path, label, prediction, float(coordinate[0]), float(coordinate[1])]
+                )
+        figure, axis = plt.subplots(figsize=(8, 7))
+        for class_index, class_name in enumerate(class_names):
+            mask = label_tensor.numpy() == class_index
+            axis.scatter(
+                coordinates[mask, 0],
+                coordinates[mask, 1],
+                s=12,
+                alpha=0.65,
+                label=class_name,
+            )
+        axis.set_title(f'{run_name} representation t-SNE')
+        axis.legend()
+        figure.tight_layout()
+        figure.savefig(trainer.output_dir / 'representation_tsne.png', dpi=180)
+        plt.close(figure)
+
+        if normalized_prototypes is not None:
+            prototype_distances = (
+                1.0 - normalized_prototypes @ normalized_prototypes.transpose(0, 1)
+            )
+            with (trainer.output_dir / 'prototype_distance_matrix.csv').open(
+                'w',
+                encoding='utf-8-sig',
+                newline='',
+            ) as file:
+                writer = csv.writer(file)
+                writer.writerow(['prototype', *class_names])
+                for class_name, row in zip(class_names, prototype_distances.tolist()):
+                    writer.writerow([class_name, *row])
+            figure, axis = plt.subplots(figsize=(6, 5))
+            image = axis.imshow(
+                prototype_distances.numpy(),
+                cmap='viridis',
+                vmin=0.0,
+            )
+            axis.set_xticks(range(len(class_names)), class_names, rotation=30)
+            axis.set_yticks(range(len(class_names)), class_names)
+            axis.set_title(f'{run_name} prototype cosine distance')
+            for row_index in range(len(class_names)):
+                for column_index in range(len(class_names)):
+                    axis.text(
+                        column_index,
+                        row_index,
+                        f'{prototype_distances[row_index, column_index]:.3f}',
+                        ha='center',
+                        va='center',
+                        color='white',
+                    )
+            figure.colorbar(image, ax=axis)
+            figure.tight_layout()
+            figure.savefig(
+                trainer.output_dir / 'prototype_distance_matrix.png',
+                dpi=180,
+            )
+            plt.close(figure)
+    except Exception:
+        (trainer.output_dir / 'representation_analysis_failure.txt').write_text(
+            traceback.format_exc(),
+            encoding='utf-8',
+        )
+
+    return {
+        'representation_artifact': str(artifact_path),
+        'representation_samples': int(representation_tensor.shape[0]),
+        'representation_dimensions': int(representation_tensor.shape[1]),
+    }
+
+
 def evaluate_best_checkpoint(
     trainer: Trainer,
     training_time_seconds: float,
@@ -373,6 +625,7 @@ def evaluate_best_checkpoint(
     result.update(
         measure_inference_time(trainer.model, trainer.test_loader, trainer.device)
     )
+    result.update(save_ordinal_representation_artifacts(trainer))
     return result
 
 
@@ -380,6 +633,130 @@ def save_json(path: Path, data: Any) -> None:
     """使用 UTF-8 和便于阅读的缩进保存 JSON。"""
     with path.open("w", encoding="utf-8") as file:
         json.dump(to_builtin(data), file, ensure_ascii=False, indent=2)
+
+
+def save_confusion_matrix_csvs(
+    run_directory: Path,
+    metrics: Dict[str, Any],
+) -> None:
+    '''为单次实验保存原始和行归一化混淆矩阵 CSV。'''
+    class_names = list(metrics.get('class_names') or [])
+    matrix_specs = (
+        ('confusion_matrix', 'confusion_matrix.csv'),
+        ('normalized_confusion_matrix', 'normalized_confusion_matrix.csv'),
+    )
+    for metric_key, filename in matrix_specs:
+        matrix = metrics.get(metric_key) or []
+        if not class_names or not matrix:
+            continue
+        with (run_directory / filename).open(
+            'w',
+            encoding='utf-8-sig',
+            newline='',
+        ) as file:
+            writer = csv.writer(file)
+            writer.writerow(['true/pred', *class_names])
+            for class_name, row in zip(class_names, matrix):
+                writer.writerow([class_name, *row])
+
+
+def _result_to_csv_row(
+    result: Dict[str, Any],
+    batch_timestamp: str,
+    fold_name: str | None = None,
+) -> Dict[str, Any]:
+    '''把单模型结果压平成适合消融汇总 CSV 的一行。'''
+    metrics = result.get('metrics') or {}
+    row = {
+        'batch_timestamp': batch_timestamp,
+        'model_name': result.get('model_name'),
+        'status': result.get('status'),
+        'accuracy': metrics.get('accuracy'),
+        'macro_f1': metrics.get('macro_f1'),
+        'mae': metrics.get('mae'),
+        'qwk': metrics.get('qwk'),
+        'parameters_total': metrics.get('parameters_total'),
+        'flops': metrics.get('flops'),
+        'flops_g': metrics.get('flops_g'),
+        'training_time_seconds': metrics.get('training_time_seconds'),
+        'inference_time_seconds': metrics.get('inference_time_seconds'),
+        'inference_ms_per_sample': metrics.get('inference_ms_per_sample'),
+        'adjacent_error_rate': metrics.get('adjacent_error_rate'),
+        'distant_error_rate': metrics.get('distant_error_rate'),
+        'class_wise_metrics': json.dumps(
+            metrics.get('class_wise_metrics') or {},
+            ensure_ascii=False,
+        ),
+        'adjacent_confusions': json.dumps(
+            metrics.get('adjacent_confusions') or {},
+            ensure_ascii=False,
+        ),
+        'config_path': result.get('config_path'),
+        'run_directory': result.get('run_directory'),
+    }
+    if fold_name is not None:
+        row['fold'] = fold_name
+    return row
+
+
+def _write_csv_rows(path: Path, rows: List[Dict[str, Any]]) -> None:
+    '''以 UTF-8 BOM 保存表格，便于 Excel 直接打开中文字段。'''
+    if not rows:
+        return
+    with path.open('w', encoding='utf-8-sig', newline='') as file:
+        writer = csv.DictWriter(file, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def write_ablation_csv_files(
+    runs_root: Path,
+    batch_timestamp: str,
+    results: List[Dict[str, Any]],
+) -> List[Path]:
+    '''按 multi-scale、neck、combined 分组生成附件要求的汇总 CSV。'''
+    baseline_results = [
+        result for result in results if result.get('model_name') == 'baseline'
+    ]
+    multiscale_results = baseline_results + [
+        result
+        for result in results
+        if str(result.get('model_name', '')).startswith(('msk_', 'msd_', 'msp_', 'msh_'))
+    ]
+    neck_results = baseline_results + [
+        result
+        for result in results
+        if str(result.get('model_name', '')).startswith('neck_')
+    ]
+    final_results = [
+        result
+        for result in results
+        if str(result.get('model_name', '')).startswith('combined_')
+    ]
+    ordinal_opcl_results = [
+        result
+        for result in results
+        if 'OrdinalOPCL/' in str(result.get('config_path', ''))
+    ]
+    written_paths: List[Path] = []
+    for filename, group_results, fold_name in (
+        ('multiscale_ablation_summary.csv', multiscale_results, None),
+        ('multiscale_ablation_folds.csv', multiscale_results, 'fixed_split'),
+        ('neck_ablation_summary.csv', neck_results, None),
+        ('neck_ablation_folds.csv', neck_results, 'fixed_split'),
+        ('final_combination_summary.csv', final_results, None),
+        ('ordinal_opcl_summary.csv', ordinal_opcl_results, None),
+        ('ordinal_opcl_folds.csv', ordinal_opcl_results, 'fixed_split'),
+    ):
+        rows = [
+            _result_to_csv_row(result, batch_timestamp, fold_name)
+            for result in group_results
+        ]
+        if rows:
+            path = runs_root / filename
+            _write_csv_rows(path, rows)
+            written_paths.append(path)
+    return written_paths
 
 
 def format_metric(value: Any) -> str:
@@ -400,6 +777,8 @@ def render_metric_cards(metrics: Dict[str, Any]) -> str:
         'flops_g',
         'training_time_seconds',
         'inference_ms_per_sample',
+        'adjacent_error_rate',
+        'distant_error_rate',
     )
     cards = []
     for key in preferred_keys:
@@ -733,6 +1112,8 @@ def build_training_config_from_file(
     runtime_config['use_wandb'] = False
     runtime_config['enable_google_drive_upload'] = False
     runtime_config['model'] = copy.deepcopy(model_config['model'])
+    if isinstance(model_config.get('loss'), dict):
+        runtime_config['loss'] = copy.deepcopy(model_config['loss'])
 
     data_config = runtime_config['data']
     data_config['root'] = str(dataset_root)
@@ -794,6 +1175,7 @@ def run_config_file(
         metrics = evaluate_best_checkpoint(trainer, training_time_seconds)
         save_json(run_directory / 'history.json', history)
         save_json(run_directory / 'test_metrics.json', metrics)
+        save_confusion_matrix_csvs(run_directory, metrics)
     except Exception:
         status = 'failed'
         error_text = traceback.format_exc()
@@ -829,6 +1211,7 @@ def run_config_file(
         'flops_g': metrics.get('flops_g'),
         'run_directory': str(run_directory),
         'report_path': str(report_path),
+        'metrics': metrics,
         'error': error_text,
     }
     del trainer
@@ -954,6 +1337,9 @@ def main() -> None:
             break
 
     summary_path = write_batch_summary(runs_root, batch_timestamp, results)
+    csv_paths = write_ablation_csv_files(runs_root, batch_timestamp, results)
+    for csv_path in csv_paths:
+        print(f'消融结果 CSV：{csv_path}')
     print(f'\n批量运行结束，总览报告：{summary_path}')
     failed_models = [
         result['model_name']
