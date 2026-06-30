@@ -1,0 +1,11 @@
+name: mobilenet_v3_large
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: torchvision
+    model_name: mobilenet_v3_large
+    pretrained: true
+  head:
+    type: linear
+    drop_rate: 0.0

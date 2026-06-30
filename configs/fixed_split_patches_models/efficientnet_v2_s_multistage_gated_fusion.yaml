@@ -1,0 +1,12 @@
+name: efficientnet_v2_s_multistage_gated_fusion
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: efficientnet_v2_s_multistage_gated_fusion
+    pretrained: true
+    fusion_channels: 256
+    gate_hidden_channels: 128
+  head:
+    type: linear
+    drop_rate: 0.0

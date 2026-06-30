@@ -1,0 +1,14 @@
+name: eca_p2
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: efficientnet_v2_s_stage_attention
+    pretrained: true
+    num_classes: 4
+    attention_type: eca
+    attention_positions: [2]
+    final_dropout: 0.2
+  head:
+    type: identity
+    drop_rate: 0.0

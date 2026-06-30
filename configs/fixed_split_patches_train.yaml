@@ -1,0 +1,65 @@
+# 固定 train/val/test patch 数据集的公共训练配置。
+# 模型结构分别放在 configs/fixed_split_patches_models，批量脚本只负责合并并运行。
+
+experiment_name: fixed_split_patches_224_ce
+
+# 数据和输出目录都使用项目根目录下的相对路径，方便本机和服务器同步运行。
+dataset_root: datasets_split_patches
+runs_root: runs
+
+# 全部模型共享同一个随机种子，方便做公平对比。
+random_seed: 2026
+
+# 固定类别顺序，避免 ImageFolder 因文件夹排序变化导致标签含义变化。
+class_to_idx:
+  pre: 0
+  slight: 1
+  moderate: 2
+  over: 3
+
+# 当前数据已经被裁剪并缩放成 224 patch，因此这里只使用 patch 版本的 transform。
+data:
+  type: image_folder
+  train_transform:
+    type: patch_train_224
+    image_size: 224
+  eval_transform:
+    type: patch_eval_224
+    image_size: 224
+  test_transform:
+    type: patch_eval_224
+    image_size: 224
+
+# 当前实验只做固定划分上的常规分类训练，不启用旧版额外验证、滑窗投票或错误分析。
+train:
+  epochs: 150
+  batch_size: 32
+  val_batch_size: 64
+  test_batch_size: 64
+  accumulation_steps: 1
+  num_workers: 4
+  weighted_sampler: false
+  patience: 30
+  selection_metric: val_acc
+  selection_mode: max
+  selection_min_delta: 0.0
+  enable_error_analysis: false
+  error_analysis_save_images: false
+  tta_mode: mean
+  tta_topk: 0
+  tta_compare: false
+  tta_compare_modes: []
+
+optimizer:
+  type: adamw
+  lr: 0.0001
+  weight_decay: 0.0005
+
+scheduler:
+  type: cosine
+  warmup_epochs: 2
+  min_lr: 0.000001
+
+loss:
+  type: cross_entropy
+  label_smoothing: 0.0

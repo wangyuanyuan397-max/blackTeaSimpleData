@@ -1,0 +1,13 @@
+name: efficientnet_v2_s_ablation_linear
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: efficientnet_v2_s_ablation
+    variant: linear
+    pretrained: true
+    num_classes: 4
+    final_dropout: 0.2
+  head:
+    type: identity
+    drop_rate: 0.0

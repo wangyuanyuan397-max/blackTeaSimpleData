@@ -1,0 +1,14 @@
+name: efficientnet_v2_s_ablation_conv_refine
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: efficientnet_v2_s_ablation
+    variant: conv_refine
+    pretrained: true
+    num_classes: 4
+    final_dropout: 0.2
+    refine_hidden_channels: 256
+  head:
+    type: identity
+    drop_rate: 0.0

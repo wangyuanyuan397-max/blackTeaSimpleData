@@ -1,0 +1,14 @@
+name: efficientnet_v2_s_ablation_mlp
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: efficientnet_v2_s_ablation
+    variant: mlp
+    pretrained: true
+    num_classes: 4
+    final_dropout: 0.2
+    mlp_hidden_dim: 512
+  head:
+    type: identity
+    drop_rate: 0.0

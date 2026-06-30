@@ -1,0 +1,11 @@
+name: convnext_tiny
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: torchvision
+    model_name: convnext_tiny
+    pretrained: true
+  head:
+    type: linear
+    drop_rate: 0.0

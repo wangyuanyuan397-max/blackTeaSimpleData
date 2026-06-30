@@ -1,0 +1,12 @@
+name: mambaout_tiny
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mambaout_tiny_ce
+    model_name: mambaout_tiny.in1k
+    pretrained: true
+    num_classes: 4
+  head:
+    type: identity
+    drop_rate: 0.0
