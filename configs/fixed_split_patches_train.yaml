@@ -49,6 +49,9 @@ train:
   tta_topk: 0
   tta_compare: false
   tta_compare_modes: []
+  # false：完成最佳权重测试和报告后删除所有 .pth，节省批量实验磁盘空间。
+  # true：保留 best_model.pth，便于后续加载模型继续推理或微调。
+  keep_pth_files: false
 
 optimizer:
   type: adamw

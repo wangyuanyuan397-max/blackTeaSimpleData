@@ -1,0 +1,11 @@
+name: effb0_ce
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: torchvision
+    model_name: efficientnet_b0
+    pretrained: true
+  head:
+    type: linear
+    drop_rate: 0.0

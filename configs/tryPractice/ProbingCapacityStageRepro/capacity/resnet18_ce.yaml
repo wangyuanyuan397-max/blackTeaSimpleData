@@ -1,0 +1,11 @@
+name: resnet18_ce
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: torchvision
+    model_name: resnet18
+    pretrained: true
+  head:
+    type: linear
+    drop_rate: 0.0

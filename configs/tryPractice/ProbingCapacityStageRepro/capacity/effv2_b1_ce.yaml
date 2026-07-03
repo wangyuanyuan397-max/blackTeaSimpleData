@@ -1,0 +1,11 @@
+name: effv2_b1_ce
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: timm
+    model_name: tf_efficientnetv2_b1
+    pretrained: true
+  head:
+    type: linear
+    drop_rate: 0.0

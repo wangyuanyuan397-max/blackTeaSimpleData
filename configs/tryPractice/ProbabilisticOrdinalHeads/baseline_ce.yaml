@@ -1,0 +1,21 @@
+name: baseline_ce
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: efficientnet_v2_s_multiscale_fusion
+    pretrained: true
+    num_classes: 4
+    final_dropout: 0.2
+    multiscale_type: none
+    multiscale_positions: []
+    multiscale_fusion: concat
+    neck_features: []
+    neck_fusion: none
+    neck_channels: 128
+  head:
+    type: identity
+    drop_rate: 0.0
+loss:
+  type: cross_entropy
+  label_smoothing: 0.0

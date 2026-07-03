@@ -7,6 +7,10 @@ from .efficientnet_ablation import EfficientNetV2SAblationBackbone
 from .efficientnet_stage_attention import EfficientNetV2SStageAttentionBackbone
 from .efficientnet_multiscale_fusion import EfficientNetV2SMultiScaleFusionBackbone
 from .efficientnet_ordinal_opcl import EfficientNetV2SOrdinalOPCLBackbone
+from .efficientnet_stage_probe import EfficientNetV2SStageProbeBackbone
+from .efficientnet_probabilistic_ordinal import (
+    EfficientNetV2SProbabilisticOrdinalBackbone,
+)
 from .efficientnet_gated import (
     EfficientNetV2SGatedRefinementBackbone,
     EfficientNetV2SMultiStageGatedFusionBackbone,
@@ -31,6 +35,8 @@ __all__ = [
     'EfficientNetV2SStageAttentionBackbone',
     'EfficientNetV2SMultiScaleFusionBackbone',
     'EfficientNetV2SOrdinalOPCLBackbone',
+    'EfficientNetV2SStageProbeBackbone',
+    'EfficientNetV2SProbabilisticOrdinalBackbone',
     'EfficientNetV2SGatedRefinementBackbone',
     'EfficientNetV2SMultiStageGatedFusionBackbone',
     "MambaOutTinyCEBackbone",

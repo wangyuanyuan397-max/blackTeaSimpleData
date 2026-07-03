@@ -7,6 +7,7 @@ import gc
 import html
 import json
 import re
+import statistics
 import sys
 import time
 import traceback
@@ -22,76 +23,47 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 COMMON_CONFIG = Path('configs/fixed_split_patches_train.yaml')
 CONFIG_LIST = (
-    # Route A：baseline + 4 种模块 × 7 个位置，共 29 组。
-    Path('configs/tryPractice/MultiScaleFeatureFusion/baseline.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msk_p3.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msk_p4.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msk_p5.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msk_p6.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msk_p46.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msk_p56.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msk_p456.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msd_p3.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msd_p4.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msd_p5.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msd_p6.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msd_p46.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msd_p56.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msd_p456.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msp_p3.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msp_p4.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msp_p5.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msp_p6.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msp_p46.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msp_p56.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msp_p456.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msh_p3.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msh_p4.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msh_p5.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msh_p6.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msh_p46.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msh_p56.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/multiscale/msh_p456.yaml'),
-    # Route B：4 种 neck 融合 × 6 个 stage 组合，共 24 组（共享上面的 baseline）。
-    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_concat_f36.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_concat_f46.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_concat_f56.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_concat_f346.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_concat_f456.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_concat_f3456.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_add_f36.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_add_f46.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_add_f56.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_add_f346.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_add_f456.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_add_f3456.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_weighted_f36.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_weighted_f46.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_weighted_f56.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_weighted_f346.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_weighted_f456.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_weighted_f3456.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_attn_f36.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_attn_f46.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_attn_f56.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_attn_f346.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_attn_f456.yaml'),
-    Path('configs/tryPractice/MultiScaleFeatureFusion/neck/neck_attn_f3456.yaml'),
-    # 文中推荐的候选组合；真正的 best 组合应由前两轮结果决定。
-    Path('configs/tryPractice/MultiScaleFeatureFusion/combined/combined_msd_p6_neck_concat_f46.yaml'),
-    # Ordinal OPCL：独立的 V0～V11，追加在现有实验之后。
-    Path('configs/tryPractice/OrdinalOPCL/baseline_ce.yaml'),
-    Path('configs/tryPractice/OrdinalOPCL/ce_projection_only.yaml'),
-    Path('configs/tryPractice/OrdinalOPCL/ce_proto.yaml'),
-    Path('configs/tryPractice/OrdinalOPCL/ce_ordinal_soft_proto.yaml'),
-    Path('configs/tryPractice/OrdinalOPCL/ce_opcl.yaml'),
-    Path('configs/tryPractice/OrdinalOPCL/ce_rank.yaml'),
-    Path('configs/tryPractice/OrdinalOPCL/ce_rank_proto.yaml'),
-    Path('configs/tryPractice/OrdinalOPCL/ce_rank_ordinal_soft_proto.yaml'),
-    Path('configs/tryPractice/OrdinalOPCL/ce_rank_opcl.yaml'),
-    Path('configs/tryPractice/OrdinalOPCL/softlabel.yaml'),
-    Path('configs/tryPractice/OrdinalOPCL/softlabel_rank.yaml'),
-    Path('configs/tryPractice/OrdinalOPCL/softlabel_rank_opcl.yaml'),
+    # Probing / 容量减法 / Stage 截断 / 3-seed 复现。
+    Path('configs/tryPractice/ProbingCapacityStageRepro/probing/probe_freeze_all.yaml'),
+    Path('configs/tryPractice/ProbingCapacityStageRepro/probing/probe_unfreeze_s6.yaml'),
+    Path('configs/tryPractice/ProbingCapacityStageRepro/probing/probe_unfreeze_s56.yaml'),
+    Path('configs/tryPractice/ProbingCapacityStageRepro/probing/probe_unfreeze_s456.yaml'),
+    Path('configs/tryPractice/ProbingCapacityStageRepro/capacity/effv2_b0_ce.yaml'),
+    Path('configs/tryPractice/ProbingCapacityStageRepro/capacity/effv2_b1_ce.yaml'),
+    Path('configs/tryPractice/ProbingCapacityStageRepro/capacity/effv2_s_ce.yaml'),
+    Path('configs/tryPractice/ProbingCapacityStageRepro/capacity/effb0_ce.yaml'),
+    Path('configs/tryPractice/ProbingCapacityStageRepro/capacity/effb1_ce.yaml'),
+    Path('configs/tryPractice/ProbingCapacityStageRepro/capacity/mobilenetv3_large_ce.yaml'),
+    Path('configs/tryPractice/ProbingCapacityStageRepro/capacity/resnet18_ce.yaml'),
+    Path('configs/tryPractice/ProbingCapacityStageRepro/stage_probe/stage_probe_s4.yaml'),
+    Path('configs/tryPractice/ProbingCapacityStageRepro/stage_probe/stage_probe_s5.yaml'),
+    Path('configs/tryPractice/ProbingCapacityStageRepro/stage_probe/stage_probe_s6.yaml'),
+    Path('configs/tryPractice/ProbingCapacityStageRepro/seed_reproduction/baseline_seed1.yaml'),
+    Path('configs/tryPractice/ProbingCapacityStageRepro/seed_reproduction/baseline_seed2.yaml'),
+    Path('configs/tryPractice/ProbingCapacityStageRepro/seed_reproduction/baseline_seed3.yaml'),
+    Path('configs/tryPractice/ProbingCapacityStageRepro/seed_reproduction/ca_p46_seed1.yaml'),
+    Path('configs/tryPractice/ProbingCapacityStageRepro/seed_reproduction/ca_p46_seed2.yaml'),
+    Path('configs/tryPractice/ProbingCapacityStageRepro/seed_reproduction/ca_p46_seed3.yaml'),
+    Path('configs/tryPractice/ProbingCapacityStageRepro/seed_reproduction/neck_concat_f56_seed1.yaml'),
+    Path('configs/tryPractice/ProbingCapacityStageRepro/seed_reproduction/neck_concat_f56_seed2.yaml'),
+    Path('configs/tryPractice/ProbingCapacityStageRepro/seed_reproduction/neck_concat_f56_seed3.yaml'),
+    Path('configs/tryPractice/ProbingCapacityStageRepro/seed_reproduction/ce_opcl_seed1.yaml'),
+    Path('configs/tryPractice/ProbingCapacityStageRepro/seed_reproduction/ce_opcl_seed2.yaml'),
+    Path('configs/tryPractice/ProbingCapacityStageRepro/seed_reproduction/ce_opcl_seed3.yaml'),
+    # Probabilistic ordinal heads：baseline + 12 个分布头实验。
+    Path('configs/tryPractice/ProbabilisticOrdinalHeads/baseline_ce.yaml'),
+    Path('configs/tryPractice/ProbabilisticOrdinalHeads/beta_cdf_grid_ce.yaml'),
+    Path('configs/tryPractice/ProbabilisticOrdinalHeads/beta_cdf_grid_ce_offset0.5.yaml'),
+    Path('configs/tryPractice/ProbabilisticOrdinalHeads/ce_beta_cdf_aux_lam0.1.yaml'),
+    Path('configs/tryPractice/ProbabilisticOrdinalHeads/ce_beta_cdf_aux_lam0.3.yaml'),
+    Path('configs/tryPractice/ProbabilisticOrdinalHeads/ce_beta_cdf_aux_lam0.5.yaml'),
+    Path('configs/tryPractice/ProbabilisticOrdinalHeads/beta_nll_center_reg1e-4.yaml'),
+    Path('configs/tryPractice/ProbabilisticOrdinalHeads/beta_nll_center_reg1e-3.yaml'),
+    Path('configs/tryPractice/ProbabilisticOrdinalHeads/ce_beta_nll_aux_lam0.1.yaml'),
+    Path('configs/tryPractice/ProbabilisticOrdinalHeads/kuma_cdf_ce.yaml'),
+    Path('configs/tryPractice/ProbabilisticOrdinalHeads/ce_kuma_cdf_aux_lam0.3.yaml'),
+    Path('configs/tryPractice/ProbabilisticOrdinalHeads/logistic_normal_cdf_ce.yaml'),
+    Path('configs/tryPractice/ProbabilisticOrdinalHeads/ce_logistic_normal_aux_lam0.3.yaml'),
 )
 
 # 在 PyCharm 中右键运行前，只需要编辑上面的 YAML 路径列表。
@@ -398,7 +370,11 @@ ORDINAL_REPRESENTATION_RUNS = {
 def save_ordinal_representation_artifacts(trainer: Trainer) -> Dict[str, Any]:
     '''为指定 OPCL 版本保存表征、t-SNE、rank 预测和 prototype 距离。'''
     run_name = str(getattr(trainer.config, 'run_name', '') or '')
-    if run_name not in ORDINAL_REPRESENTATION_RUNS:
+    backbone = getattr(trainer.model, 'backbone', None)
+    if (
+        run_name not in ORDINAL_REPRESENTATION_RUNS
+        or not bool(getattr(backbone, 'is_ordinal_opcl', False))
+    ):
         return {}
 
     model = trainer.model
@@ -576,6 +552,135 @@ def save_ordinal_representation_artifacts(trainer: Trainer) -> Dict[str, Any]:
     }
 
 
+def save_probabilistic_prediction_csv(trainer: Trainer) -> Dict[str, Any]:
+    '''保存概率有序头的逐样本分布参数、区间概率与不确定性。'''
+    backbone = getattr(trainer.model, 'backbone', None)
+    if not bool(getattr(backbone, 'is_probabilistic_ordinal', False)):
+        return {}
+
+    model = trainer.model
+    was_training = model.training
+    model.eval()
+    rows = []
+    variance_correct = []
+    variance_wrong = []
+    max_probability_correct = []
+    max_probability_wrong = []
+    probabilistic_correct = 0
+    total_samples = 0
+    with torch.no_grad():
+        for batch in trainer.test_loader:
+            images = batch[0].to(trainer.device)
+            labels = batch[1].detach().cpu()
+            paths = batch[2] if len(batch) >= 3 else [''] * int(labels.shape[0])
+            outputs = model(images)
+            primary_logits, auxiliary = outputs[0], outputs[1]
+            predictions = primary_logits.argmax(dim=1).detach().cpu()
+            stage_probs = auxiliary['stage_probs'].detach().cpu()
+            probabilistic_predictions = stage_probs.argmax(dim=1)
+            probabilistic_correct += int(
+                probabilistic_predictions.eq(labels).sum().item()
+            )
+            total_samples += int(labels.shape[0])
+            distribution = str(auxiliary.get('distribution', ''))
+
+            tensor_values = {}
+            for key in (
+                'alpha',
+                'beta',
+                'mean',
+                'var',
+                'a',
+                'b',
+                'mu',
+                'sigma',
+                'mean_proxy',
+            ):
+                value = auxiliary.get(key)
+                if torch.is_tensor(value):
+                    tensor_values[key] = value.detach().cpu().view(-1)
+
+            for index, (path, true_label, predicted_label) in enumerate(
+                zip(paths, labels.tolist(), predictions.tolist())
+            ):
+                probabilities = stage_probs[index]
+                correct = int(true_label == predicted_label)
+                max_probability = float(probabilities.max().item())
+                variance = (
+                    float(tensor_values['var'][index].item())
+                    if 'var' in tensor_values
+                    else None
+                )
+                if correct:
+                    max_probability_correct.append(max_probability)
+                    if variance is not None:
+                        variance_correct.append(variance)
+                else:
+                    max_probability_wrong.append(max_probability)
+                    if variance is not None:
+                        variance_wrong.append(variance)
+                row = {
+                    'image_path': str(path),
+                    'true_label': int(true_label),
+                    'pred_label': int(predicted_label),
+                    'correct': correct,
+                    'abs_error': abs(int(true_label) - int(predicted_label)),
+                    'distribution': distribution,
+                    'P_Pre': float(probabilities[0].item()),
+                    'P_Slight': float(probabilities[1].item()),
+                    'P_Moderate': float(probabilities[2].item()),
+                    'P_Over': float(probabilities[3].item()),
+                    'max_prob': max_probability,
+                }
+                for key, values in tensor_values.items():
+                    row[key] = float(values[index].item())
+                rows.append(row)
+    model.train(was_training)
+
+    fieldnames = [
+        'image_path',
+        'true_label',
+        'pred_label',
+        'correct',
+        'abs_error',
+        'distribution',
+        'P_Pre',
+        'P_Slight',
+        'P_Moderate',
+        'P_Over',
+        'alpha',
+        'beta',
+        'mean',
+        'var',
+        'a',
+        'b',
+        'mu',
+        'sigma',
+        'mean_proxy',
+        'max_prob',
+    ]
+    csv_path = trainer.output_dir / 'test_predictions_probabilistic.csv'
+    with csv_path.open('w', encoding='utf-8-sig', newline='') as file:
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({key: row.get(key) for key in fieldnames})
+
+    def mean_or_none(values):
+        return statistics.mean(values) if values else None
+
+    return {
+        'probabilistic_predictions_csv': str(csv_path),
+        'probabilistic_head_accuracy': (
+            probabilistic_correct / total_samples if total_samples else 0.0
+        ),
+        'correct_mean_variance': mean_or_none(variance_correct),
+        'wrong_mean_variance': mean_or_none(variance_wrong),
+        'correct_mean_max_prob': mean_or_none(max_probability_correct),
+        'wrong_mean_max_prob': mean_or_none(max_probability_wrong),
+    }
+
+
 def evaluate_best_checkpoint(
     trainer: Trainer,
     training_time_seconds: float,
@@ -625,6 +730,7 @@ def evaluate_best_checkpoint(
     result.update(
         measure_inference_time(trainer.model, trainer.test_loader, trainer.device)
     )
+    result.update(save_probabilistic_prediction_csv(trainer))
     result.update(save_ordinal_representation_artifacts(trainer))
     return result
 
@@ -676,6 +782,7 @@ def _result_to_csv_row(
         'mae': metrics.get('mae'),
         'qwk': metrics.get('qwk'),
         'parameters_total': metrics.get('parameters_total'),
+        'parameters_trainable': metrics.get('parameters_trainable'),
         'flops': metrics.get('flops'),
         'flops_g': metrics.get('flops_g'),
         'training_time_seconds': metrics.get('training_time_seconds'),
@@ -683,6 +790,11 @@ def _result_to_csv_row(
         'inference_ms_per_sample': metrics.get('inference_ms_per_sample'),
         'adjacent_error_rate': metrics.get('adjacent_error_rate'),
         'distant_error_rate': metrics.get('distant_error_rate'),
+        'probabilistic_head_accuracy': metrics.get('probabilistic_head_accuracy'),
+        'correct_mean_variance': metrics.get('correct_mean_variance'),
+        'wrong_mean_variance': metrics.get('wrong_mean_variance'),
+        'correct_mean_max_prob': metrics.get('correct_mean_max_prob'),
+        'wrong_mean_max_prob': metrics.get('wrong_mean_max_prob'),
         'class_wise_metrics': json.dumps(
             metrics.get('class_wise_metrics') or {},
             ensure_ascii=False,
@@ -738,6 +850,16 @@ def write_ablation_csv_files(
         for result in results
         if 'OrdinalOPCL/' in str(result.get('config_path', ''))
     ]
+    probing_capacity_results = [
+        result
+        for result in results
+        if 'ProbingCapacityStageRepro/' in str(result.get('config_path', ''))
+    ]
+    probabilistic_ordinal_results = [
+        result
+        for result in results
+        if 'ProbabilisticOrdinalHeads/' in str(result.get('config_path', ''))
+    ]
     written_paths: List[Path] = []
     for filename, group_results, fold_name in (
         ('multiscale_ablation_summary.csv', multiscale_results, None),
@@ -747,6 +869,26 @@ def write_ablation_csv_files(
         ('final_combination_summary.csv', final_results, None),
         ('ordinal_opcl_summary.csv', ordinal_opcl_results, None),
         ('ordinal_opcl_folds.csv', ordinal_opcl_results, 'fixed_split'),
+        (
+            'probing_capacity_stage_repro_summary.csv',
+            probing_capacity_results,
+            None,
+        ),
+        (
+            'probing_capacity_stage_repro_folds.csv',
+            probing_capacity_results,
+            'fixed_split',
+        ),
+        (
+            'probabilistic_ordinal_summary.csv',
+            probabilistic_ordinal_results,
+            None,
+        ),
+        (
+            'probabilistic_ordinal_folds.csv',
+            probabilistic_ordinal_results,
+            'fixed_split',
+        ),
     ):
         rows = [
             _result_to_csv_row(result, batch_timestamp, fold_name)
@@ -756,6 +898,38 @@ def write_ablation_csv_files(
             path = runs_root / filename
             _write_csv_rows(path, rows)
             written_paths.append(path)
+
+    seed_groups: Dict[str, List[Dict[str, Any]]] = {}
+    for result in probing_capacity_results:
+        model_name = str(result.get('model_name', ''))
+        match = re.fullmatch(r'(.+)_seed([123])', model_name)
+        if match and result.get('status') == 'success':
+            seed_groups.setdefault(match.group(1), []).append(result)
+    seed_rows = []
+    metric_names = ('accuracy', 'macro_f1', 'mae', 'qwk')
+    for model_family, family_results in sorted(seed_groups.items()):
+        row: Dict[str, Any] = {
+            'batch_timestamp': batch_timestamp,
+            'model_family': model_family,
+            'seed_count': len(family_results),
+        }
+        for metric_name in metric_names:
+            values = [
+                float(result['metrics'][metric_name])
+                for result in family_results
+                if (result.get('metrics') or {}).get(metric_name) is not None
+            ]
+            row[f'{metric_name}_mean'] = (
+                statistics.mean(values) if values else None
+            )
+            row[f'{metric_name}_std'] = (
+                statistics.stdev(values) if len(values) >= 2 else 0.0
+            )
+        seed_rows.append(row)
+    if seed_rows:
+        seed_summary_path = runs_root / 'seed_reproduction_summary.csv'
+        _write_csv_rows(seed_summary_path, seed_rows)
+        written_paths.append(seed_summary_path)
     return written_paths
 
 
@@ -774,11 +948,17 @@ def render_metric_cards(metrics: Dict[str, Any]) -> str:
     preferred_keys = preferred_keys + (
         'macro_f1',
         'parameters_total',
+        'parameters_trainable',
         'flops_g',
         'training_time_seconds',
         'inference_ms_per_sample',
         'adjacent_error_rate',
         'distant_error_rate',
+        'probabilistic_head_accuracy',
+        'correct_mean_variance',
+        'wrong_mean_variance',
+        'correct_mean_max_prob',
+        'wrong_mean_max_prob',
     )
     cards = []
     for key in preferred_keys:
@@ -900,6 +1080,22 @@ def render_history_table(history: Dict[str, List[Any]]) -> str:
     return f"<div class='scroll'><table><thead><tr><th>epoch</th>{header}</tr></thead><tbody>{''.join(rows)}</tbody></table></div>"
 
 
+def should_keep_pth_files(config: TrainingConfig) -> bool:
+    '''读取公共训练开关；未配置时保持向后兼容，默认保留权重。'''
+    return bool(getattr(config.train, 'keep_pth_files', True))
+
+
+def cleanup_pth_files(run_directory: Path, keep_pth_files: bool) -> List[str]:
+    '''最终评估完成后按开关删除该实验目录中的所有 .pth 文件。'''
+    if keep_pth_files:
+        return []
+    removed_files = []
+    for checkpoint_path in run_directory.glob('*.pth'):
+        checkpoint_path.unlink(missing_ok=True)
+        removed_files.append(checkpoint_path.name)
+    return removed_files
+
+
 def write_run_report(
     run_directory: Path,
     model_name: str,
@@ -918,6 +1114,12 @@ def write_run_report(
     status_class = "ok" if status == "success" else "failed"
     config_json = "{}" if config is None else json.dumps(
         to_builtin(config.model_dump()), ensure_ascii=False, indent=2
+    )
+    keep_pth_files = True if config is None else should_keep_pth_files(config)
+    checkpoint_entry = (
+        '<a href="best_model.pth">最佳模型</a>'
+        if keep_pth_files
+        else '<span class="muted">最佳模型未保留（keep_pth_files=false）</span>'
     )
     per_class_rows = "".join(
         f"<tr><td>{html.escape(str(name))}</td><td>{float(value):.4%}</td></tr>"
@@ -957,7 +1159,7 @@ def write_run_report(
     <h1>{html.escape(model_name)} 训练报告</h1>
     <p><span class="status {status_class}">{html.escape(status)}</span></p>
     <p class="muted">开始：{started_at.strftime('%Y-%m-%d %H:%M:%S')}　结束：{finished_at.strftime('%Y-%m-%d %H:%M:%S')}　耗时：{duration_seconds:.1f} 秒</p>
-    <p><a href="config.yaml">实际配置</a> · <a href="best_model.pth">最佳模型</a> · <a href="test_metrics.json">测试指标 JSON</a> · <a href="history.json">训练历史 JSON</a> · <a href="train.log">训练日志</a></p>
+    <p><a href="config.yaml">实际配置</a> · {checkpoint_entry} · <a href="test_metrics.json">测试指标 JSON</a> · <a href="history.json">训练历史 JSON</a> · <a href="train.log">训练日志</a></p>
   </header>
   {error_section}
   <section><h2>测试集关键指标</h2><div class="metrics">{render_metric_cards(metrics)}</div></section>
@@ -1114,6 +1316,8 @@ def build_training_config_from_file(
     runtime_config['model'] = copy.deepcopy(model_config['model'])
     if isinstance(model_config.get('loss'), dict):
         runtime_config['loss'] = copy.deepcopy(model_config['loss'])
+    if model_config.get('random_seed') is not None:
+        runtime_config['random_seed'] = int(model_config['random_seed'])
 
     data_config = runtime_config['data']
     data_config['root'] = str(dataset_root)
@@ -1188,6 +1392,12 @@ def run_config_file(
         print(f'模型 {model_name} 运行失败，详情见 {failure_path}')
 
     finished_at = datetime.now()
+    keep_pth_files = should_keep_pth_files(config)
+    removed_pth_files = cleanup_pth_files(run_directory, keep_pth_files)
+    metrics['keep_pth_files'] = keep_pth_files
+    metrics['removed_pth_files'] = removed_pth_files
+    if metrics:
+        save_json(run_directory / 'test_metrics.json', metrics)
     report_path = write_run_report(
         run_directory=run_directory,
         model_name=model_name,
@@ -1208,6 +1418,7 @@ def run_config_file(
         'mae': metrics.get('mae'),
         'qwk': metrics.get('qwk'),
         'parameters_total': metrics.get('parameters_total'),
+        'parameters_trainable': metrics.get('parameters_trainable'),
         'flops_g': metrics.get('flops_g'),
         'run_directory': str(run_directory),
         'report_path': str(report_path),
@@ -1312,8 +1523,22 @@ def main() -> None:
     for relative_path, _ in model_entries:
         print(f'  - {relative_path.as_posix()}')
     print(f'固定数据集：{dataset_root}')
-    print(f'随机种子：{common_config.get("random_seed", 42)}')
+    seed_by_model = [
+        (relative_path.stem, int(getattr(config, 'random_seed', 42)))
+        for (relative_path, _), config in zip(model_entries, preview_configs)
+    ]
+    unique_seeds = sorted({seed for _, seed in seed_by_model})
+    if len(unique_seeds) == 1:
+        print(f'随机种子：{unique_seeds[0]}')
+    else:
+        print('本次包含多个随机种子：')
+        for model_name, seed in seed_by_model:
+            print(f'  - {model_name}: {seed}')
     print(f'训练轮数：{common_config["train"]["epochs"]}')
+    print(
+        '保留 PTH：'
+        + str(bool(common_config['train'].get('keep_pth_files', True)))
+    )
     print(f'训练设备：{device}')
 
     if args.dry_run:

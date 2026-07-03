@@ -83,6 +83,7 @@ class EfficientNetV2SOrdinalOPCLBackbone(nn.Module):
         self.enable_rank = bool(enable_rank)
         self.enable_projection = bool(enable_projection)
         self.enable_prototypes = bool(enable_prototypes)
+        self.is_ordinal_opcl = True
         self.temperature = float(temperature)
 
         self.rank_head = nn.Linear(1280, 1) if self.enable_rank else None

@@ -1,0 +1,16 @@
+name: ca_p46_seed1
+random_seed: 1
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: efficientnet_v2_s_stage_attention
+    pretrained: true
+    num_classes: 4
+    attention_type: ca
+    attention_positions: [4, 6]
+    ca_reduction: 32
+    final_dropout: 0.2
+  head:
+    type: identity
+    drop_rate: 0.0
