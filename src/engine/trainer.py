@@ -191,6 +191,21 @@ class Trainer:
         
         if self.accumulation_steps > 1:
             self.logger.info(f"gradient_accumulation_enabled", steps=self.accumulation_steps)
+
+        # 二阶段困难样本实验会在正式训练前按绝对图片路径注入固定权重。
+        self.sample_weights_by_path: Dict[str, float] = {}
+
+    def set_sample_weights_by_path(self, sample_weights: Dict[str, float]) -> None:
+        """设置训练集逐样本权重；未出现在字典中的样本默认权重为 1。"""
+        normalized = {str(path): float(weight) for path, weight in sample_weights.items()}
+        invalid = [path for path, weight in normalized.items() if weight <= 0]
+        if invalid:
+            raise ValueError(f"样本权重必须大于 0，发现无效路径：{invalid[:3]}")
+        self.sample_weights_by_path = normalized
+        self.logger.info(
+            "sample_weights_configured",
+            weighted_samples=len(normalized),
+        )
     
     def train(self) -> None:
         """
@@ -525,14 +540,29 @@ class Trainer:
             # Handle both 2-value (images, labels) and 3-value (images, labels, paths) batch returns
             # 数据集可能返回 (image, label, path) 或 (image, label) 两种格式。
             extra_targets = None
+            sample_paths = None
             if len(batch_data) == 4:
-                images, labels, _, extra_targets = batch_data
+                images, labels, sample_paths, extra_targets = batch_data
             elif len(batch_data) == 3:
-                images, labels, _ = batch_data
+                images, labels, sample_paths = batch_data
             elif len(batch_data) == 2:
                 images, labels = batch_data
             else:
                 raise ValueError(f"Unexpected batch format: got {len(batch_data)} elements")
+            if self.sample_weights_by_path:
+                if sample_paths is None:
+                    raise ValueError("逐样本加权要求数据集返回图片路径。")
+                if extra_targets is None:
+                    extra_targets = {}
+                else:
+                    extra_targets = dict(extra_targets)
+                extra_targets["sample_weights"] = torch.tensor(
+                    [
+                        self.sample_weights_by_path.get(str(path), 1.0)
+                        for path in sample_paths
+                    ],
+                    dtype=torch.float32,
+                )
             # 触发 batch_start Hook
             self.hook_manager.trigger("on_batch_start", trainer=self, batch_idx=batch_idx)
             

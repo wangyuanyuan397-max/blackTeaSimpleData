@@ -1,0 +1,17 @@
+# B2：只把 Stage5 的普通四分类建模替换为 CORN 条件边界建模。
+name: stage5_corn
+model:
+  type: classifier
+  strategy: ordinal_regression
+  backbone:
+    type: efficientnet_v2_s_stage_probe
+    pretrained: true
+    output_stage: 5
+    trainable_stages: [1, 2, 3, 4, 5]
+  head:
+    type: corn_head
+    drop_rate: 0.0
+    threshold: 0.5
+loss:
+  type: corn_ordinal
+  num_classes: 4

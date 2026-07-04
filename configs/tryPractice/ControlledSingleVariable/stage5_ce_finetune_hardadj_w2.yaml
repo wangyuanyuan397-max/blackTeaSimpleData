@@ -1,0 +1,29 @@
+# D1：与 D0 使用同一 checkpoint 和训练参数，唯一差异是困难相邻样本权重为 2。
+name: stage5_ce_finetune_hardadj_w2
+initial_checkpoint_from: stage5_ce
+hard_adjacent_mining:
+  enabled: true
+  probability_margin: 0.15
+  hard_weight: 2.0
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: efficientnet_v2_s_stage_probe
+    pretrained: true
+    output_stage: 5
+    trainable_stages: [1, 2, 3, 4, 5]
+  head:
+    type: linear
+    drop_rate: 0.0
+loss:
+  type: weighted_cross_entropy
+  label_smoothing: 0.0
+train:
+  epochs: 20
+  patience: 20
+optimizer:
+  lr: 0.00001
+scheduler:
+  warmup_epochs: 0
+  min_lr: 0.0000001

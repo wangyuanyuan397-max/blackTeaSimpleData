@@ -39,6 +39,20 @@ CONFIG_LIST = (
     Path('configs/tryPractice/SignalStability3Seeds/logistic_normal_cdf_ce_seed1.yaml'),
     Path('configs/tryPractice/SignalStability3Seeds/logistic_normal_cdf_ce_seed2.yaml'),
     Path('configs/tryPractice/SignalStability3Seeds/logistic_normal_cdf_ce_seed3.yaml'),
+    # 单变量控制实验：先验证 Stage5，再分别验证有序边界、对比、困难样本和 Beta-NLL。
+    Path('configs/tryPractice/ControlledSingleVariable/full_effv2s_ce.yaml'),
+    Path('configs/tryPractice/ControlledSingleVariable/stage5_ce.yaml'),
+    Path('configs/tryPractice/ControlledSingleVariable/stage5_coral.yaml'),
+    Path('configs/tryPractice/ControlledSingleVariable/stage5_corn.yaml'),
+    Path('configs/tryPractice/ControlledSingleVariable/stage5_ce_adjcon_m0.5_lam0.05.yaml'),
+    Path('configs/tryPractice/ControlledSingleVariable/stage5_ce_finetune_uniform.yaml'),
+    Path('configs/tryPractice/ControlledSingleVariable/stage5_ce_finetune_hardadj_w2.yaml'),
+    Path('configs/tryPractice/ControlledSingleVariable/stage5_beta_nll_reg1e-4.yaml'),
+    # GAP 前最终特征图精炼：M3～M6，旧 EfficientNetV2-S baseline 不重复运行。
+    Path('configs/tryPractice/FinalFeatureRefinement/m3_effv2s_msr.yaml'),
+    Path('configs/tryPractice/FinalFeatureRefinement/m4_fmr_efficientnet_msr_eca.yaml'),
+    Path('configs/tryPractice/FinalFeatureRefinement/m5_effv2s_dcn.yaml'),
+    Path('configs/tryPractice/FinalFeatureRefinement/m6_effv2s_msr_se.yaml'),
 )
 
 # 在 PyCharm 中右键运行前，只需要编辑上面的 YAML 路径列表。
@@ -164,6 +178,131 @@ def to_builtin(value: Any) -> Any:
     return value
 
 
+def identify_hard_adjacent_samples(
+    trainer: Trainer,
+    probability_margin: float,
+    hard_weight: float,
+) -> tuple[Dict[str, float], Dict[str, Any]]:
+    """用当前 Stage5 checkpoint 在确定性训练集上固定识别困难相邻样本。"""
+    from torch.utils.data import DataLoader
+
+    from src.data.loader import ImageFolderWithPaths
+
+    if hard_weight <= 0:
+        raise ValueError('hard_weight 必须大于 0。')
+    train_dataset = trainer.train_loader.dataset
+    if not isinstance(train_dataset, ImageFolderWithPaths):
+        raise TypeError('hard-adjacent 实验目前要求 image_folder 固定划分数据集。')
+
+    # 困难样本检测不使用随机翻转，避免同一 checkpoint 因增强随机性得到不同清单。
+    eval_transform = trainer.val_loader.dataset.transform
+    detection_dataset = ImageFolderWithPaths(
+        root=train_dataset.root,
+        transform=eval_transform,
+        class_to_idx=train_dataset.class_to_idx,
+    )
+    local_generator = torch.Generator()
+    local_generator.manual_seed(0)
+    detection_loader = DataLoader(
+        detection_dataset,
+        batch_size=int(getattr(trainer.config.train, 'val_batch_size', 64) or 64),
+        shuffle=False,
+        num_workers=0,
+        pin_memory=torch.cuda.is_available(),
+        drop_last=False,
+        generator=local_generator,
+    )
+
+    model = trainer.model
+    was_training = model.training
+    model.eval()
+    hard_sample_weights: Dict[str, float] = {}
+    rows: List[Dict[str, Any]] = []
+    with torch.no_grad():
+        for batch in detection_loader:
+            images, labels, paths = batch
+            images = images.to(trainer.device)
+            labels_device = labels.to(trainer.device)
+            outputs = model(images)
+            logits = outputs[0] if isinstance(outputs, tuple) else outputs
+            if logits.ndim != 2 or logits.shape[1] != 4:
+                raise ValueError(
+                    'hard-adjacent 检测要求原始四分类 logits，'
+                    f'实际形状为 {tuple(logits.shape)}。'
+                )
+            probabilities = torch.softmax(logits, dim=1)
+            predictions = probabilities.argmax(dim=1)
+            for index, path in enumerate(paths):
+                true_label = int(labels_device[index].item())
+                pred_label = int(predictions[index].item())
+                adjacent_indices = [
+                    candidate
+                    for candidate in (true_label - 1, true_label + 1)
+                    if 0 <= candidate < 4
+                ]
+                true_probability = float(probabilities[index, true_label].item())
+                max_adjacent_probability = float(
+                    probabilities[index, adjacent_indices].max().item()
+                )
+                margin = true_probability - max_adjacent_probability
+                adjacent_misclassification = (
+                    pred_label != true_label
+                    and abs(pred_label - true_label) == 1
+                )
+                low_adjacent_margin = margin < probability_margin
+                if not (adjacent_misclassification or low_adjacent_margin):
+                    continue
+                path_text = str(path)
+                hard_sample_weights[path_text] = float(hard_weight)
+                reasons = []
+                if adjacent_misclassification:
+                    reasons.append('adjacent_misclassification')
+                if low_adjacent_margin:
+                    reasons.append('true_vs_adjacent_margin')
+                rows.append(
+                    {
+                        'image_path': path_text,
+                        'true_label': true_label,
+                        'pred_label': pred_label,
+                        'true_probability': true_probability,
+                        'max_adjacent_probability': max_adjacent_probability,
+                        'probability_margin': margin,
+                        'adjacent_misclassification': int(adjacent_misclassification),
+                        'low_adjacent_margin': int(low_adjacent_margin),
+                        'reason': '+'.join(reasons),
+                        'sample_weight': float(hard_weight),
+                    }
+                )
+    model.train(was_training)
+
+    csv_path = trainer.output_dir / 'hard_adjacent_samples.csv'
+    fieldnames = [
+        'image_path',
+        'true_label',
+        'pred_label',
+        'true_probability',
+        'max_adjacent_probability',
+        'probability_margin',
+        'adjacent_misclassification',
+        'low_adjacent_margin',
+        'reason',
+        'sample_weight',
+    ]
+    with csv_path.open('w', encoding='utf-8-sig', newline='') as file:
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    return hard_sample_weights, {
+        'hard_adjacent_samples_csv': str(csv_path),
+        'hard_adjacent_sample_count': len(rows),
+        'hard_adjacent_sample_rate': (
+            len(rows) / len(detection_dataset) if len(detection_dataset) else 0.0
+        ),
+        'hard_adjacent_probability_margin': float(probability_margin),
+        'hard_adjacent_sample_weight': float(hard_weight),
+    }
+
+
 def compute_classification_details(
     confusion_matrix,
     class_names: List[str],
@@ -198,6 +337,8 @@ def compute_classification_details(
         )
 
     adjacent_confusions: Dict[str, Dict[str, Any]] = {}
+    boundary_accuracies: Dict[str, Dict[str, Any]] = {}
+    adjacent_error_counts: Dict[str, int] = {}
     for left_index in range(len(class_names) - 1):
         right_index = left_index + 1
         left_name = class_names[left_index]
@@ -216,6 +357,24 @@ def compute_classification_details(
                 right_to_left / right_total if right_total else 0.0
             ),
         }
+        # 只按真实标签筛选相邻两类，但预测仍使用原始 K 类结果。
+        # 因此预测成这两个类别之外的类别同样会计为错误，绝不重新二选一。
+        boundary_total = left_total + right_total
+        boundary_correct = (
+            int(confusion_matrix[left_index, left_index])
+            + int(confusion_matrix[right_index, right_index])
+        )
+        boundary_key = f'acc_{left_index}_{right_index}'
+        boundary_accuracies[boundary_key] = {
+            'accuracy': (
+                boundary_correct / boundary_total if boundary_total else 0.0
+            ),
+            'correct': boundary_correct,
+            'total': boundary_total,
+            'true_classes': [left_index, right_index],
+        }
+        adjacent_error_counts[f'error_{left_index}_to_{right_index}'] = left_to_right
+        adjacent_error_counts[f'error_{right_index}_to_{left_index}'] = right_to_left
 
     adjacent_error_count = 0
     distant_error_count = 0
@@ -229,14 +388,17 @@ def compute_classification_details(
             else:
                 distant_error_count += error_count
     total_error_count = adjacent_error_count + distant_error_count
-    return {
+    details = {
         'macro_f1': sum(f1_values) / len(f1_values) if f1_values else 0.0,
         'class_wise_metrics': class_wise_metrics,
         'normalized_confusion_matrix': normalized_confusion_matrix,
         'adjacent_confusions': adjacent_confusions,
+        'boundary_accuracies': boundary_accuracies,
+        'adjacent_error_counts': adjacent_error_counts,
         'total_error_count': total_error_count,
         'adjacent_error_count': adjacent_error_count,
         'distant_error_count': distant_error_count,
+        'far_error_count': distant_error_count,
         'adjacent_error_rate': (
             adjacent_error_count / total_error_count if total_error_count else 0.0
         ),
@@ -244,6 +406,10 @@ def compute_classification_details(
             distant_error_count / total_error_count if total_error_count else 0.0
         ),
     }
+    for boundary_key, values in boundary_accuracies.items():
+        details[boundary_key] = values['accuracy']
+    details.update(adjacent_error_counts)
+    return details
 
 
 def profile_model_complexity(
@@ -770,6 +936,16 @@ def _result_to_csv_row(
         'inference_ms_per_sample': metrics.get('inference_ms_per_sample'),
         'adjacent_error_rate': metrics.get('adjacent_error_rate'),
         'distant_error_rate': metrics.get('distant_error_rate'),
+        'acc_0_1': metrics.get('acc_0_1'),
+        'acc_1_2': metrics.get('acc_1_2'),
+        'acc_2_3': metrics.get('acc_2_3'),
+        'error_0_to_1': metrics.get('error_0_to_1'),
+        'error_1_to_0': metrics.get('error_1_to_0'),
+        'error_1_to_2': metrics.get('error_1_to_2'),
+        'error_2_to_1': metrics.get('error_2_to_1'),
+        'error_2_to_3': metrics.get('error_2_to_3'),
+        'error_3_to_2': metrics.get('error_3_to_2'),
+        'far_error_count': metrics.get('far_error_count'),
         'probabilistic_head_accuracy': metrics.get('probabilistic_head_accuracy'),
         'correct_mean_variance': metrics.get('correct_mean_variance'),
         'wrong_mean_variance': metrics.get('wrong_mean_variance'),
@@ -781,6 +957,10 @@ def _result_to_csv_row(
         ),
         'adjacent_confusions': json.dumps(
             metrics.get('adjacent_confusions') or {},
+            ensure_ascii=False,
+        ),
+        'boundary_accuracies': json.dumps(
+            metrics.get('boundary_accuracies') or {},
             ensure_ascii=False,
         ),
         'config_path': result.get('config_path'),
@@ -845,6 +1025,16 @@ def write_ablation_csv_files(
         for result in results
         if 'SignalStability3Seeds/' in str(result.get('config_path', ''))
     ]
+    controlled_single_variable_results = [
+        result
+        for result in results
+        if 'ControlledSingleVariable/' in str(result.get('config_path', ''))
+    ]
+    final_feature_refinement_results = [
+        result
+        for result in results
+        if 'FinalFeatureRefinement/' in str(result.get('config_path', ''))
+    ]
     written_paths: List[Path] = []
     for filename, group_results, fold_name in (
         ('multiscale_ablation_summary.csv', multiscale_results, None),
@@ -882,6 +1072,26 @@ def write_ablation_csv_files(
         (
             'signal_stability_3seeds_folds.csv',
             signal_stability_results,
+            'fixed_split',
+        ),
+        (
+            'controlled_single_variable_summary.csv',
+            controlled_single_variable_results,
+            None,
+        ),
+        (
+            'controlled_single_variable_folds.csv',
+            controlled_single_variable_results,
+            'fixed_split',
+        ),
+        (
+            'final_feature_refinement_summary.csv',
+            final_feature_refinement_results,
+            None,
+        ),
+        (
+            'final_feature_refinement_folds.csv',
+            final_feature_refinement_results,
             'fixed_split',
         ),
     ):
@@ -949,6 +1159,13 @@ def render_metric_cards(metrics: Dict[str, Any]) -> str:
         'inference_ms_per_sample',
         'adjacent_error_rate',
         'distant_error_rate',
+        'acc_0_1',
+        'acc_1_2',
+        'acc_2_3',
+        'adjacent_error_count',
+        'far_error_count',
+        'hard_adjacent_sample_count',
+        'hard_adjacent_sample_rate',
         'probabilistic_head_accuracy',
         'correct_mean_variance',
         'wrong_mean_variance',
@@ -1052,6 +1269,30 @@ def render_adjacent_confusions(metrics: Dict[str, Any]) -> str:
     return (
         '<table><thead><tr><th>类别对</th><th>方向一</th><th>数量</th><th>比例</th>'
         '<th>方向二</th><th>数量</th><th>比例</th></tr></thead><tbody>'
+        + ''.join(rows)
+        + '</tbody></table>'
+    )
+
+
+def render_boundary_accuracies(metrics: Dict[str, Any]) -> str:
+    '''渲染按真实标签筛选、但保留原始四分类预测的相邻边界准确率。'''
+    rows = []
+    for metric_name, values in (metrics.get('boundary_accuracies') or {}).items():
+        rows.append(
+            '<tr>'
+            f'<td>{html.escape(str(metric_name))}</td>'
+            f'<td>{float(values["accuracy"]):.4%}</td>'
+            f'<td>{int(values["correct"])}</td>'
+            f'<td>{int(values["total"])}</td>'
+            '</tr>'
+        )
+    if not rows:
+        return '<p class="muted">没有相邻边界准确率。</p>'
+    return (
+        '<p class="muted">仅按真实标签筛选相邻两类；预测仍为原始四分类，'
+        '预测到其他类别同样计错。</p>'
+        '<table><thead><tr><th>指标</th><th>准确率</th><th>正确数</th>'
+        '<th>样本数</th></tr></thead><tbody>'
         + ''.join(rows)
         + '</tbody></table>'
     )
@@ -1162,6 +1403,7 @@ def write_run_report(
   <section><h2>逐类 Precision / Recall / F1</h2>{render_class_wise_metrics(metrics)}</section>
   <section><h2>测试集混淆矩阵</h2>{render_confusion_matrix(metrics)}</section>
   <section><h2>测试集归一化混淆矩阵</h2>{render_normalized_confusion_matrix(metrics)}</section>
+  <section><h2>相邻边界准确率</h2>{render_boundary_accuracies(metrics)}</section>
   <section><h2>相邻严重程度混淆</h2>{render_adjacent_confusions(metrics)}</section>
   <section><h2>训练历史</h2>{render_history_table(history)}</section>
   <section><h2>完整运行配置</h2><pre>{html.escape(config_json)}</pre></section>
@@ -1287,6 +1529,11 @@ def load_model_config(relative_path: Path) -> Dict[str, Any]:
         raise ValueError(f'模型配置缺少 model.backbone 字典：{relative_path}')
     if not isinstance(model_config.get('head'), dict):
         raise ValueError(f'模型配置缺少 model.head 字典：{relative_path}')
+    initial_checkpoint_from = config.get('initial_checkpoint_from')
+    if initial_checkpoint_from is not None and not isinstance(initial_checkpoint_from, str):
+        raise ValueError(
+            f'initial_checkpoint_from 必须是配置名字符串：{relative_path}'
+        )
     return config
 
 
@@ -1313,6 +1560,19 @@ def build_training_config_from_file(
         runtime_config['loss'] = copy.deepcopy(model_config['loss'])
     if model_config.get('random_seed') is not None:
         runtime_config['random_seed'] = int(model_config['random_seed'])
+    # 单模型 YAML 可以只覆盖二阶段训练所需字段，而不复制整份公共配置。
+    for section_name in ('train', 'optimizer', 'scheduler'):
+        section_override = model_config.get(section_name)
+        if not isinstance(section_override, dict):
+            continue
+        if not isinstance(runtime_config.get(section_name), dict):
+            runtime_config[section_name] = {}
+        runtime_config[section_name].update(copy.deepcopy(section_override))
+    for orchestration_key in ('initial_checkpoint_from', 'hard_adjacent_mining'):
+        if model_config.get(orchestration_key) is not None:
+            runtime_config[orchestration_key] = copy.deepcopy(
+                model_config[orchestration_key]
+            )
 
     data_config = runtime_config['data']
     data_config['root'] = str(dataset_root)
@@ -1340,6 +1600,8 @@ def run_config_file(
     dataset_root: Path,
     runs_root: Path,
     device: torch.device,
+    initial_state_dict: Optional[Dict[str, torch.Tensor]] = None,
+    capture_best_state: bool = False,
 ) -> Dict[str, Any]:
     '''训练一个模型 YAML，执行最终测试并保存完整归档。'''
     model_name = str(model_config['name'])
@@ -1358,6 +1620,8 @@ def run_config_file(
     history: Dict[str, List[Any]] = {}
     status = 'success'
     error_text = None
+    captured_best_state: Optional[Dict[str, torch.Tensor]] = None
+    hard_mining_metrics: Dict[str, Any] = {}
 
     try:
         separator = '=' * 80
@@ -1367,11 +1631,35 @@ def run_config_file(
             f'\n输出目录：{run_directory}\n{separator}'
         )
         trainer = Trainer(config=config, device=device)
+        if initial_state_dict is not None:
+            trainer.model.load_state_dict(initial_state_dict, strict=True)
+            trainer.logger.info(
+                'initial_checkpoint_loaded',
+                source=model_config.get('initial_checkpoint_from'),
+            )
+        hard_mining_config = model_config.get('hard_adjacent_mining')
+        if isinstance(hard_mining_config, dict) and bool(
+            hard_mining_config.get('enabled', False)
+        ):
+            sample_weights, hard_mining_metrics = identify_hard_adjacent_samples(
+                trainer,
+                probability_margin=float(
+                    hard_mining_config.get('probability_margin', 0.15)
+                ),
+                hard_weight=float(hard_mining_config.get('hard_weight', 2.0)),
+            )
+            trainer.set_sample_weights_by_path(sample_weights)
         training_started_at = time.perf_counter()
         trainer.train()
         training_time_seconds = time.perf_counter() - training_started_at
         history = to_builtin(trainer.history)
         metrics = evaluate_best_checkpoint(trainer, training_time_seconds)
+        metrics.update(hard_mining_metrics)
+        if capture_best_state:
+            captured_best_state = {
+                key: value.detach().cpu().clone()
+                for key, value in trainer.model.state_dict().items()
+            }
         save_json(run_directory / 'history.json', history)
         save_json(run_directory / 'test_metrics.json', metrics)
         save_confusion_matrix_csvs(run_directory, metrics)
@@ -1420,6 +1708,9 @@ def run_config_file(
         'metrics': metrics,
         'error': error_text,
     }
+    if captured_best_state is not None:
+        # 仅供当前批次的依赖实验使用，不写入 JSON/CSV，也不要求保留 PTH。
+        result['_best_state_dict'] = captured_best_state
     del trainer
     gc.collect()
     if torch.cuda.is_available():
@@ -1512,6 +1803,28 @@ def main() -> None:
         (relative_path, load_model_config(relative_path))
         for relative_path in selected_paths
     ]
+    selected_model_names = [str(config['name']) for _, config in model_entries]
+    selected_model_indices = {
+        model_name: index
+        for index, model_name in enumerate(selected_model_names)
+    }
+    required_checkpoint_sources = set()
+    for dependent_index, (_, model_config) in enumerate(model_entries):
+        source_name = model_config.get('initial_checkpoint_from')
+        if source_name is None:
+            continue
+        source_index = selected_model_indices.get(str(source_name))
+        if source_index is None:
+            raise ValueError(
+                f'{model_config["name"]} 依赖 {source_name}，'
+                '请在 --models 中同时选择该来源配置。'
+            )
+        if source_index >= dependent_index:
+            raise ValueError(
+                f'{model_config["name"]} 的来源 {source_name} '
+                '必须排在 CONFIG_LIST 更前面。'
+            )
+        required_checkpoint_sources.add(str(source_name))
 
     device = resolve_device(args.device)
     dataset_root = resolve_project_path(
@@ -1551,7 +1864,17 @@ def main() -> None:
         print('本次包含多个随机种子：')
         for model_name, seed in seed_by_model:
             print(f'  - {model_name}: {seed}')
-    print(f'训练轮数：{common_config["train"]["epochs"]}')
+    epoch_by_model = [
+        (relative_path.stem, int(config.train.epochs))
+        for (relative_path, _), config in zip(model_entries, preview_configs)
+    ]
+    unique_epochs = sorted({epochs for _, epochs in epoch_by_model})
+    if len(unique_epochs) == 1:
+        print(f'训练轮数：{unique_epochs[0]}')
+    else:
+        print('本次包含不同训练轮数：')
+        for model_name, epochs in epoch_by_model:
+            print(f'  - {model_name}: {epochs}')
     print(
         '保留 PTH：'
         + str(bool(common_config['train'].get('keep_pth_files', True)))
@@ -1565,7 +1888,18 @@ def main() -> None:
     runs_root.mkdir(parents=True, exist_ok=True)
     batch_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     results: List[Dict[str, Any]] = []
+    checkpoint_state_cache: Dict[str, Dict[str, torch.Tensor]] = {}
     for relative_path, model_config in model_entries:
+        model_name = str(model_config['name'])
+        source_name = model_config.get('initial_checkpoint_from')
+        initial_state_dict = None
+        if source_name is not None:
+            initial_state_dict = checkpoint_state_cache.get(str(source_name))
+            if initial_state_dict is None:
+                raise RuntimeError(
+                    f'{model_name} 无法开始：来源实验 {source_name} '
+                    '没有成功生成最佳权重。'
+                )
         result = run_config_file(
             common_config,
             relative_path,
@@ -1573,7 +1907,12 @@ def main() -> None:
             dataset_root,
             runs_root,
             device,
+            initial_state_dict=initial_state_dict,
+            capture_best_state=model_name in required_checkpoint_sources,
         )
+        captured_state = result.pop('_best_state_dict', None)
+        if captured_state is not None:
+            checkpoint_state_cache[model_name] = captured_state
         results.append(result)
         if result['status'] == 'failed' and args.fail_fast:
             break

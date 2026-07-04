@@ -206,6 +206,7 @@ class EfficientNetV2SProbabilisticOrdinalBackbone(nn.Module):
         max_concentration: float = 80.0,
         min_sigma: float = 0.05,
         max_sigma: float = 5.0,
+        output_stage: int = 6,
     ):
         super().__init__()
         if num_classes != 4:
@@ -218,8 +219,23 @@ class EfficientNetV2SProbabilisticOrdinalBackbone(nn.Module):
             'logistic_normal',
         }:
             raise ValueError(f'未知 distribution：{distribution!r}')
+        output_stage = int(output_stage)
+        if output_stage < 1 or output_stage > 6:
+            raise ValueError("output_stage 只允许 1～6。")
         efficientnet = _build_efficientnet_v2_s(pretrained)
-        self.features = efficientnet.features
+        raw_features = efficientnet.features
+        all_stages = [
+            nn.Sequential(raw_features[0], raw_features[1]),
+            raw_features[2],
+            raw_features[3],
+            raw_features[4],
+            raw_features[5],
+            nn.Sequential(raw_features[6], raw_features[7]),
+        ]
+        stage_channels = (24, 48, 64, 128, 160, 1280)
+        self.features = nn.Sequential(*all_stages[:output_stage])
+        self.output_stage = output_stage
+        feature_channels = stage_channels[output_stage - 1]
         self.avgpool = nn.AdaptiveAvgPool2d(1)
         self.distribution = distribution
         self.use_ce_head = bool(use_ce_head)
@@ -229,24 +245,24 @@ class EfficientNetV2SProbabilisticOrdinalBackbone(nn.Module):
         )
         # CE 辅助实验先创建相同分类器，保证不同概率头下初始分类权重一致。
         self.classifier = (
-            nn.Linear(1280, num_classes) if self.use_ce_head else None
+            nn.Linear(feature_channels, num_classes) if self.use_ce_head else None
         )
         if distribution in {'beta_cdf', 'beta_nll'}:
             self.probabilistic_head = BetaOrdinalHead(
-                in_features=1280,
+                in_features=feature_channels,
                 num_grid=num_grid,
                 min_concentration=min_concentration,
                 max_concentration=max_concentration,
             )
         elif distribution == 'kumaraswamy':
             self.probabilistic_head = KumaraswamyOrdinalHead(
-                in_features=1280,
+                in_features=feature_channels,
                 min_concentration=min_concentration,
                 max_concentration=max_concentration,
             )
         else:
             self.probabilistic_head = LogisticNormalOrdinalHead(
-                in_features=1280,
+                in_features=feature_channels,
                 min_sigma=min_sigma,
                 max_sigma=max_sigma,
             )

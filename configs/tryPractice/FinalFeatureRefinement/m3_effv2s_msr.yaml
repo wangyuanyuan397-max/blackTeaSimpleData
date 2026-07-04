@@ -1,0 +1,17 @@
+# M3：只在 EfficientNetV2-S final feature map 后加入多尺度精炼模块。
+name: m3_effv2s_msr
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: efficientnet_v2_s_final_refinement
+    pretrained: true
+    variant: msr
+    refine_channels: 256
+    residual_gamma_init: 0.1
+  head:
+    type: linear
+    drop_rate: 0.2
+loss:
+  type: cross_entropy
+  label_smoothing: 0.0

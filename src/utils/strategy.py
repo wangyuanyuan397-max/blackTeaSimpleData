@@ -322,6 +322,7 @@ def validate_strategy_config(config: dict) -> None:
             "ordinal",           # 原有的 ordinal heads (如 linearOrdinalSwinHead)
             "spacecutter_head",  # SpaceCutter 累积链接函数
             "coral_head",        # CORAL 秩一致性序数回归
+            "corn_head",         # CORN 条件有序回归
         ]
         
         # 检查 head_type 是否符合任一允许的类型
@@ -340,7 +341,7 @@ def validate_strategy_config(config: dict) -> None:
     # 规则2: 标准分类策略不应使用序数回归 Head
     if strategy_type == "classification":
         # 不允许与分类策略一起使用的 head 类型
-        ordinal_only_heads = ["ordinal", "spacecutter_head", "coral_head"]
+        ordinal_only_heads = ["ordinal", "spacecutter_head", "coral_head", "corn_head"]
         
         is_ordinal_only = any(
             disallowed in head_type.lower() 

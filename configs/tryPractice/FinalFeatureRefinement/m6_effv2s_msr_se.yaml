@@ -1,0 +1,18 @@
+# M6：保持 M4 的 MSR 不变，只把 ECA 替换为 SE 作为注意力对照。
+name: m6_effv2s_msr_se
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: efficientnet_v2_s_final_refinement
+    pretrained: true
+    variant: msr_se
+    refine_channels: 256
+    residual_gamma_init: 0.1
+    se_reduction: 16
+  head:
+    type: linear
+    drop_rate: 0.2
+loss:
+  type: cross_entropy
+  label_smoothing: 0.0

@@ -1,0 +1,25 @@
+# E1：只把 Stage5 的 CE 分类头替换为 Beta-NLL 概率有序头。
+name: stage5_beta_nll_reg1e-4
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: efficientnet_v2_s_probabilistic_ordinal
+    pretrained: true
+    output_stage: 5
+    num_classes: 4
+    distribution: beta_nll
+    use_ce_head: false
+    final_dropout: 0.0
+    num_grid: 200
+    min_concentration: 0.5
+    max_concentration: 80.0
+  head:
+    type: identity
+    drop_rate: 0.0
+loss:
+  type: probabilistic_ordinal
+  mode: beta_nll
+  use_ce: false
+  auxiliary_weight: 1.0
+  beta_reg_weight: 0.0001

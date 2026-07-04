@@ -1,0 +1,25 @@
+# D0：从同一个 stage5_ce 最佳权重开始，所有样本权重均为 1。
+name: stage5_ce_finetune_uniform
+initial_checkpoint_from: stage5_ce
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: efficientnet_v2_s_stage_probe
+    pretrained: true
+    output_stage: 5
+    trainable_stages: [1, 2, 3, 4, 5]
+  head:
+    type: linear
+    drop_rate: 0.0
+loss:
+  type: weighted_cross_entropy
+  label_smoothing: 0.0
+train:
+  epochs: 20
+  patience: 20
+optimizer:
+  lr: 0.00001
+scheduler:
+  warmup_epochs: 0
+  min_lr: 0.0000001

@@ -1,0 +1,16 @@
+# A1/B0/C0/E0：Stage5 特征的公共对照，后续单变量实验统一与它比较。
+name: stage5_ce
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: efficientnet_v2_s_stage_probe
+    pretrained: true
+    output_stage: 5
+    trainable_stages: [1, 2, 3, 4, 5]
+  head:
+    type: linear
+    drop_rate: 0.0
+loss:
+  type: cross_entropy
+  label_smoothing: 0.0

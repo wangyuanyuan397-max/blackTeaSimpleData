@@ -1,0 +1,19 @@
+# C1：保持 Stage5 + Linear(4) 不变，只增加相邻类别对比约束。
+name: stage5_ce_adjcon_m0.5_lam0.05
+model:
+  type: classifier
+  strategy: classification
+  return_embeddings: true
+  backbone:
+    type: efficientnet_v2_s_stage_probe
+    pretrained: true
+    output_stage: 5
+    trainable_stages: [1, 2, 3, 4, 5]
+  head:
+    type: linear
+    drop_rate: 0.0
+loss:
+  type: ce_adjacent_contrastive
+  margin: 0.5
+  contrastive_weight: 0.05
+  label_smoothing: 0.0

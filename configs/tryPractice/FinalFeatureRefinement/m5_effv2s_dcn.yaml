@@ -1,0 +1,17 @@
+# M5：用真正的 3×3 Deformable Conv 验证动态采样是否优于普通多尺度精炼。
+name: m5_effv2s_dcn
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: efficientnet_v2_s_final_refinement
+    pretrained: true
+    variant: dcn
+    refine_channels: 256
+    residual_gamma_init: 0.1
+  head:
+    type: linear
+    drop_rate: 0.2
+loss:
+  type: cross_entropy
+  label_smoothing: 0.0

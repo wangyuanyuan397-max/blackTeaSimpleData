@@ -1,0 +1,19 @@
+# M4：主推 FMR-EfficientNet，在相同 MSR 后增加轻量 ECA 通道注意力。
+name: m4_fmr_efficientnet_msr_eca
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: efficientnet_v2_s_final_refinement
+    pretrained: true
+    variant: msr_eca
+    refine_channels: 256
+    residual_gamma_init: 0.1
+    eca_gamma: 2.0
+    eca_bias: 1.0
+  head:
+    type: linear
+    drop_rate: 0.2
+loss:
+  type: cross_entropy
+  label_smoothing: 0.0
