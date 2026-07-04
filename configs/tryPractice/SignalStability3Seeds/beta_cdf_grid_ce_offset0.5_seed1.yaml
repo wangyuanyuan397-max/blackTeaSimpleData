@@ -1,0 +1,26 @@
+name: beta_cdf_grid_ce_offset0.5_seed1
+random_seed: 1
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: efficientnet_v2_s_probabilistic_ordinal
+    pretrained: true
+    num_classes: 4
+    distribution: beta_cdf
+    use_ce_head: false
+    final_dropout: 0.2
+    num_grid: 200
+    min_concentration: 0.5
+    max_concentration: 80.0
+    min_sigma: 0.05
+    max_sigma: 5.0
+  head:
+    type: identity
+    drop_rate: 0.0
+loss:
+  type: probabilistic_ordinal
+  mode: beta_cdf
+  use_ce: false
+  auxiliary_weight: 1.0
+  beta_reg_weight: 0.0001

@@ -23,47 +23,22 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 COMMON_CONFIG = Path('configs/fixed_split_patches_train.yaml')
 CONFIG_LIST = (
-    # Probing / 容量减法 / Stage 截断 / 3-seed 复现。
-    Path('configs/tryPractice/ProbingCapacityStageRepro/probing/probe_freeze_all.yaml'),
-    Path('configs/tryPractice/ProbingCapacityStageRepro/probing/probe_unfreeze_s6.yaml'),
-    Path('configs/tryPractice/ProbingCapacityStageRepro/probing/probe_unfreeze_s56.yaml'),
-    Path('configs/tryPractice/ProbingCapacityStageRepro/probing/probe_unfreeze_s456.yaml'),
-    Path('configs/tryPractice/ProbingCapacityStageRepro/capacity/effv2_b0_ce.yaml'),
-    Path('configs/tryPractice/ProbingCapacityStageRepro/capacity/effv2_b1_ce.yaml'),
-    Path('configs/tryPractice/ProbingCapacityStageRepro/capacity/effv2_s_ce.yaml'),
-    Path('configs/tryPractice/ProbingCapacityStageRepro/capacity/effb0_ce.yaml'),
-    Path('configs/tryPractice/ProbingCapacityStageRepro/capacity/effb1_ce.yaml'),
-    Path('configs/tryPractice/ProbingCapacityStageRepro/capacity/mobilenetv3_large_ce.yaml'),
-    Path('configs/tryPractice/ProbingCapacityStageRepro/capacity/resnet18_ce.yaml'),
-    Path('configs/tryPractice/ProbingCapacityStageRepro/stage_probe/stage_probe_s4.yaml'),
-    Path('configs/tryPractice/ProbingCapacityStageRepro/stage_probe/stage_probe_s5.yaml'),
-    Path('configs/tryPractice/ProbingCapacityStageRepro/stage_probe/stage_probe_s6.yaml'),
-    Path('configs/tryPractice/ProbingCapacityStageRepro/seed_reproduction/baseline_seed1.yaml'),
-    Path('configs/tryPractice/ProbingCapacityStageRepro/seed_reproduction/baseline_seed2.yaml'),
-    Path('configs/tryPractice/ProbingCapacityStageRepro/seed_reproduction/baseline_seed3.yaml'),
-    Path('configs/tryPractice/ProbingCapacityStageRepro/seed_reproduction/ca_p46_seed1.yaml'),
-    Path('configs/tryPractice/ProbingCapacityStageRepro/seed_reproduction/ca_p46_seed2.yaml'),
-    Path('configs/tryPractice/ProbingCapacityStageRepro/seed_reproduction/ca_p46_seed3.yaml'),
-    Path('configs/tryPractice/ProbingCapacityStageRepro/seed_reproduction/neck_concat_f56_seed1.yaml'),
-    Path('configs/tryPractice/ProbingCapacityStageRepro/seed_reproduction/neck_concat_f56_seed2.yaml'),
-    Path('configs/tryPractice/ProbingCapacityStageRepro/seed_reproduction/neck_concat_f56_seed3.yaml'),
-    Path('configs/tryPractice/ProbingCapacityStageRepro/seed_reproduction/ce_opcl_seed1.yaml'),
-    Path('configs/tryPractice/ProbingCapacityStageRepro/seed_reproduction/ce_opcl_seed2.yaml'),
-    Path('configs/tryPractice/ProbingCapacityStageRepro/seed_reproduction/ce_opcl_seed3.yaml'),
-    # Probabilistic ordinal heads：baseline + 12 个分布头实验。
-    Path('configs/tryPractice/ProbabilisticOrdinalHeads/baseline_ce.yaml'),
-    Path('configs/tryPractice/ProbabilisticOrdinalHeads/beta_cdf_grid_ce.yaml'),
-    Path('configs/tryPractice/ProbabilisticOrdinalHeads/beta_cdf_grid_ce_offset0.5.yaml'),
-    Path('configs/tryPractice/ProbabilisticOrdinalHeads/ce_beta_cdf_aux_lam0.1.yaml'),
-    Path('configs/tryPractice/ProbabilisticOrdinalHeads/ce_beta_cdf_aux_lam0.3.yaml'),
-    Path('configs/tryPractice/ProbabilisticOrdinalHeads/ce_beta_cdf_aux_lam0.5.yaml'),
-    Path('configs/tryPractice/ProbabilisticOrdinalHeads/beta_nll_center_reg1e-4.yaml'),
-    Path('configs/tryPractice/ProbabilisticOrdinalHeads/beta_nll_center_reg1e-3.yaml'),
-    Path('configs/tryPractice/ProbabilisticOrdinalHeads/ce_beta_nll_aux_lam0.1.yaml'),
-    Path('configs/tryPractice/ProbabilisticOrdinalHeads/kuma_cdf_ce.yaml'),
-    Path('configs/tryPractice/ProbabilisticOrdinalHeads/ce_kuma_cdf_aux_lam0.3.yaml'),
-    Path('configs/tryPractice/ProbabilisticOrdinalHeads/logistic_normal_cdf_ce.yaml'),
-    Path('configs/tryPractice/ProbabilisticOrdinalHeads/ce_logistic_normal_aux_lam0.3.yaml'),
+    # 五个候选模型 × seeds 1/2/3，共 15 次稳定性实验。
+    Path('configs/tryPractice/SignalStability3Seeds/baseline_ce_seed1.yaml'),
+    Path('configs/tryPractice/SignalStability3Seeds/baseline_ce_seed2.yaml'),
+    Path('configs/tryPractice/SignalStability3Seeds/baseline_ce_seed3.yaml'),
+    Path('configs/tryPractice/SignalStability3Seeds/stage_probe_s5_seed1.yaml'),
+    Path('configs/tryPractice/SignalStability3Seeds/stage_probe_s5_seed2.yaml'),
+    Path('configs/tryPractice/SignalStability3Seeds/stage_probe_s5_seed3.yaml'),
+    Path('configs/tryPractice/SignalStability3Seeds/beta_nll_center_reg1e-4_seed1.yaml'),
+    Path('configs/tryPractice/SignalStability3Seeds/beta_nll_center_reg1e-4_seed2.yaml'),
+    Path('configs/tryPractice/SignalStability3Seeds/beta_nll_center_reg1e-4_seed3.yaml'),
+    Path('configs/tryPractice/SignalStability3Seeds/beta_cdf_grid_ce_offset0.5_seed1.yaml'),
+    Path('configs/tryPractice/SignalStability3Seeds/beta_cdf_grid_ce_offset0.5_seed2.yaml'),
+    Path('configs/tryPractice/SignalStability3Seeds/beta_cdf_grid_ce_offset0.5_seed3.yaml'),
+    Path('configs/tryPractice/SignalStability3Seeds/logistic_normal_cdf_ce_seed1.yaml'),
+    Path('configs/tryPractice/SignalStability3Seeds/logistic_normal_cdf_ce_seed2.yaml'),
+    Path('configs/tryPractice/SignalStability3Seeds/logistic_normal_cdf_ce_seed3.yaml'),
 )
 
 # 在 PyCharm 中右键运行前，只需要编辑上面的 YAML 路径列表。
@@ -77,6 +52,11 @@ PYCHARM_DRY_RUN = False
 
 # PyCharm 右键运行时是否遇到第一个失败模型就停止；False 会记录失败并继续后面的模型。
 PYCHARM_FAIL_FAST = False
+
+# PyCharm 右键运行时是否保留 .pth：
+# False = 完成最佳权重测试和报告后删除 .pth，适合大批量实验节省空间。
+# True  = 保留 best_model.pth，适合需要后续加载权重的正式模型。
+PYCHARM_KEEP_PTH_FILES = False
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -860,6 +840,11 @@ def write_ablation_csv_files(
         for result in results
         if 'ProbabilisticOrdinalHeads/' in str(result.get('config_path', ''))
     ]
+    signal_stability_results = [
+        result
+        for result in results
+        if 'SignalStability3Seeds/' in str(result.get('config_path', ''))
+    ]
     written_paths: List[Path] = []
     for filename, group_results, fold_name in (
         ('multiscale_ablation_summary.csv', multiscale_results, None),
@@ -889,6 +874,16 @@ def write_ablation_csv_files(
             probabilistic_ordinal_results,
             'fixed_split',
         ),
+        (
+            'signal_stability_3seeds_summary.csv',
+            signal_stability_results,
+            None,
+        ),
+        (
+            'signal_stability_3seeds_folds.csv',
+            signal_stability_results,
+            'fixed_split',
+        ),
     ):
         rows = [
             _result_to_csv_row(result, batch_timestamp, fold_name)
@@ -900,7 +895,7 @@ def write_ablation_csv_files(
             written_paths.append(path)
 
     seed_groups: Dict[str, List[Dict[str, Any]]] = {}
-    for result in probing_capacity_results:
+    for result in probing_capacity_results + signal_stability_results:
         model_name = str(result.get('model_name', ''))
         match = re.fullmatch(r'(.+)_seed([123])', model_name)
         if match and result.get('status') == 'success':
@@ -1476,6 +1471,22 @@ def parse_arguments() -> argparse.Namespace:
         default=PYCHARM_FAIL_FAST,
         help='任一模型失败后立即停止；默认记录失败并继续下一项。',
     )
+    pth_group = parser.add_mutually_exclusive_group()
+    pth_group.add_argument(
+        '--keep-pth',
+        '--keep-pth-files',
+        dest='keep_pth_files',
+        action='store_true',
+        help='本次运行保留每个实验的 best_model.pth。',
+    )
+    pth_group.add_argument(
+        '--discard-pth',
+        '--discard-pth-files',
+        dest='keep_pth_files',
+        action='store_false',
+        help='本次运行完成测试和报告后删除每个实验的所有 .pth。',
+    )
+    parser.set_defaults(keep_pth_files=None)
     return parser.parse_args()
 
 
@@ -1491,6 +1502,12 @@ def main() -> None:
         return
 
     common_config = load_common_config()
+    keep_pth_files = (
+        PYCHARM_KEEP_PTH_FILES
+        if args.keep_pth_files is None
+        else bool(args.keep_pth_files)
+    )
+    common_config['train']['keep_pth_files'] = keep_pth_files
     model_entries = [
         (relative_path, load_model_config(relative_path))
         for relative_path in selected_paths

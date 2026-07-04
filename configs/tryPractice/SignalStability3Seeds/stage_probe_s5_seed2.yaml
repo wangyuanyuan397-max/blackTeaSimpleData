@@ -1,0 +1,13 @@
+name: stage_probe_s5_seed2
+random_seed: 2
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: efficientnet_v2_s_stage_probe
+    pretrained: true
+    output_stage: 5
+    trainable_stages: [1, 2, 3, 4, 5]
+  head:
+    type: linear
+    drop_rate: 0.0
