@@ -10,7 +10,7 @@ from typing import Iterable
 TARGET_DIRECTORY = Path('G:/wyy/projects/blackTeaSimpleData/runs')
 
 # True 只显示将要删除的文件，不执行删除；确认无误后改成 False。
-DRY_RUN = True
+DRY_RUN = False
 
 
 def format_size(size_bytes: int) -> str:
