@@ -1,0 +1,21 @@
+# GLMS-4：保持 concat 双分支结构，仅将监督方式改为边界距离自适应 soft label。
+name: glms_concat_adaptive_soft
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: efficientnet_v2_s_global_local_multiscale
+    pretrained: true
+    fusion_mode: concat
+    local_channels: 256
+    gate_hidden_dim: 128
+  head:
+    type: linear
+    drop_rate: 0.2
+loss:
+  type: boundary_adaptive_soft_ce
+  eps_max: 0.20
+  tau: 0.5
+  max_total_soft: 0.30
+  boundaries: [1.25, 2.75, 4.75]
+  check_label_consistency: true

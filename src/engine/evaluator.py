@@ -439,12 +439,20 @@ class Evaluator:
                 for batch_idx, batch in enumerate(pbar):
                     # 解包批次数据
                     extra_targets = None
+                    sample_paths = None
                     if len(batch) == 4:
-                        images, labels, _, extra_targets = batch
+                        images, labels, sample_paths, extra_targets = batch
                     elif len(batch) == 3:
-                        images, labels, _ = batch  # (images, labels, paths)
+                        images, labels, sample_paths = batch  # (images, labels, paths)
                     else:
                         images, labels = batch
+                    if sample_paths is not None:
+                        if extra_targets is None:
+                            extra_targets = {}
+                        else:
+                            extra_targets = dict(extra_targets)
+                        # 让验证/测试 loss 和训练 loss 一样能基于图片路径解析发酵时间。
+                        extra_targets["sample_paths"] = sample_paths
                     
                     # 这里 images 既可能是 [B, C, H, W]，
                     # 也可能是 [B, N, C, H, W]（滑窗 / 五裁剪）。

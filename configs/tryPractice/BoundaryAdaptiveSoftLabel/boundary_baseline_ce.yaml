@@ -1,0 +1,15 @@
+# A0：hard label CE，对照自适应 soft label 是否真的有收益。
+name: boundary_baseline_ce
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: torchvision
+    model_name: efficientnet_v2_s
+    pretrained: true
+  head:
+    type: linear
+    drop_rate: 0.0
+loss:
+  type: cross_entropy
+  label_smoothing: 0.0

@@ -1,0 +1,18 @@
+# GLA-A：EfficientNetV2-S + 普通 GAP baseline。
+name: gla_baseline_gap
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: efficientnet_v2_s_region_attention
+    pretrained: true
+    pooling_mode: global
+    reduction: 8
+    temperature: 1.0
+    local_scale_init: 0.0
+  head:
+    type: linear
+    drop_rate: 0.2
+loss:
+  type: cross_entropy
+  label_smoothing: 0.0

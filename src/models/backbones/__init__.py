@@ -12,6 +12,10 @@ from .efficientnet_probabilistic_ordinal import (
     EfficientNetV2SProbabilisticOrdinalBackbone,
 )
 from .efficientnet_final_refinement import EfficientNetV2SFinalRefinementBackbone
+from .efficientnet_region_attention import EfficientNetV2SRegionAttentionBackbone
+from .efficientnet_global_local_multiscale import (
+    EfficientNetV2SGlobalLocalMultiScaleBackbone,
+)
 from .efficientnet_gated import (
     EfficientNetV2SGatedRefinementBackbone,
     EfficientNetV2SMultiStageGatedFusionBackbone,
@@ -39,6 +43,7 @@ __all__ = [
     'EfficientNetV2SStageProbeBackbone',
     'EfficientNetV2SProbabilisticOrdinalBackbone',
     'EfficientNetV2SFinalRefinementBackbone',
+    'EfficientNetV2SGlobalLocalMultiScaleBackbone',
     'EfficientNetV2SGatedRefinementBackbone',
     'EfficientNetV2SMultiStageGatedFusionBackbone',
     "MambaOutTinyCEBackbone",

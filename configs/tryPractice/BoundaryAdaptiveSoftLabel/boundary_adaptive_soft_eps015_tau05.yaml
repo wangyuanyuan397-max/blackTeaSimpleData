@@ -1,0 +1,19 @@
+# B2：边界距离自适应 soft label，中等偏保守软化强度。
+name: boundary_adaptive_soft_eps015_tau05
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: torchvision
+    model_name: efficientnet_v2_s
+    pretrained: true
+  head:
+    type: linear
+    drop_rate: 0.0
+loss:
+  type: boundary_adaptive_soft_ce
+  eps_max: 0.15
+  tau: 0.5
+  max_total_soft: 0.30
+  boundaries: [1.25, 2.75, 4.75]
+  check_label_consistency: true

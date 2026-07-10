@@ -1,0 +1,18 @@
+# GLA-C：global + gamma * local，gamma 初始为 0，训练初期等价于 baseline。
+name: gla_global_local
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: efficientnet_v2_s_region_attention
+    pretrained: true
+    pooling_mode: global_local
+    reduction: 8
+    temperature: 1.0
+    local_scale_init: 0.0
+  head:
+    type: linear
+    drop_rate: 0.2
+loss:
+  type: cross_entropy
+  label_smoothing: 0.0

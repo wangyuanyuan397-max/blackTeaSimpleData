@@ -1,5 +1,6 @@
 from .ce_loss import CrossEntropyLoss
 from .ce_with_aux_regression import CEWithAuxRegressionLoss
+from .boundary_adaptive_soft_ce import BoundaryAdaptiveSoftCrossEntropyLoss
 from .distance_soft_ce import DistanceAwareSoftCrossEntropyLoss
 from .distance_soft_ce_with_aux_regression import DistanceSoftCEWithAuxRegressionLoss
 from .ordinal_opcl import OrdinalOPCLLoss
@@ -14,6 +15,7 @@ from .controlled_single_variable import (
 __all__ = [
     "CrossEntropyLoss",
     "CEWithAuxRegressionLoss",
+    "BoundaryAdaptiveSoftCrossEntropyLoss",
     "DistanceAwareSoftCrossEntropyLoss",
     "DistanceSoftCEWithAuxRegressionLoss",
     "OrdinalOPCLLoss",

@@ -1,0 +1,19 @@
+# A1：固定相邻 soft label，所有同类样本使用同一套软标签。
+name: boundary_fixed_adjacent_soft_eps007
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: torchvision
+    model_name: efficientnet_v2_s
+    pretrained: true
+  head:
+    type: linear
+    drop_rate: 0.0
+loss:
+  type: distance_soft_ce
+  soft_targets:
+    - [0.93, 0.07, 0.00, 0.00]
+    - [0.07, 0.86, 0.07, 0.00]
+    - [0.00, 0.07, 0.86, 0.07]
+    - [0.00, 0.00, 0.07, 0.93]

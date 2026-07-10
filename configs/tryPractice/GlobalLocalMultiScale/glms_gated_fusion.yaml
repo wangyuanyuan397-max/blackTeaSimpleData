@@ -1,0 +1,17 @@
+# GLMS-3：根据每个样本动态学习 global/local 两个分支的融合权重。
+name: glms_gated_fusion
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: efficientnet_v2_s_global_local_multiscale
+    pretrained: true
+    fusion_mode: gated
+    local_channels: 256
+    gate_hidden_dim: 128
+  head:
+    type: linear
+    drop_rate: 0.2
+loss:
+  type: cross_entropy
+  label_smoothing: 0.0

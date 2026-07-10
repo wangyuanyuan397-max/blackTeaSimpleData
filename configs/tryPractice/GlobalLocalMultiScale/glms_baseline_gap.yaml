@@ -1,0 +1,17 @@
+# GLMS-0：只使用当前 patch 的全局 GAP 特征。
+name: glms_baseline_gap
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: efficientnet_v2_s_global_local_multiscale
+    pretrained: true
+    fusion_mode: global
+    local_channels: 256
+    gate_hidden_dim: 128
+  head:
+    type: linear
+    drop_rate: 0.2
+loss:
+  type: cross_entropy
+  label_smoothing: 0.0

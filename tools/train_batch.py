@@ -23,36 +23,24 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 COMMON_CONFIG = Path('configs/fixed_split_patches_train.yaml')
 CONFIG_LIST = (
-    # 五个候选模型 × seeds 1/2/3，共 15 次稳定性实验。
-    Path('configs/tryPractice/SignalStability3Seeds/baseline_ce_seed1.yaml'),
-    Path('configs/tryPractice/SignalStability3Seeds/baseline_ce_seed2.yaml'),
-    Path('configs/tryPractice/SignalStability3Seeds/baseline_ce_seed3.yaml'),
-    Path('configs/tryPractice/SignalStability3Seeds/stage_probe_s5_seed1.yaml'),
-    Path('configs/tryPractice/SignalStability3Seeds/stage_probe_s5_seed2.yaml'),
-    Path('configs/tryPractice/SignalStability3Seeds/stage_probe_s5_seed3.yaml'),
-    Path('configs/tryPractice/SignalStability3Seeds/beta_nll_center_reg1e-4_seed1.yaml'),
-    Path('configs/tryPractice/SignalStability3Seeds/beta_nll_center_reg1e-4_seed2.yaml'),
-    Path('configs/tryPractice/SignalStability3Seeds/beta_nll_center_reg1e-4_seed3.yaml'),
-    Path('configs/tryPractice/SignalStability3Seeds/beta_cdf_grid_ce_offset0.5_seed1.yaml'),
-    Path('configs/tryPractice/SignalStability3Seeds/beta_cdf_grid_ce_offset0.5_seed2.yaml'),
-    Path('configs/tryPractice/SignalStability3Seeds/beta_cdf_grid_ce_offset0.5_seed3.yaml'),
-    Path('configs/tryPractice/SignalStability3Seeds/logistic_normal_cdf_ce_seed1.yaml'),
-    Path('configs/tryPractice/SignalStability3Seeds/logistic_normal_cdf_ce_seed2.yaml'),
-    Path('configs/tryPractice/SignalStability3Seeds/logistic_normal_cdf_ce_seed3.yaml'),
-    # 单变量控制实验：先验证 Stage5，再分别验证有序边界、对比、困难样本和 Beta-NLL。
-    Path('configs/tryPractice/ControlledSingleVariable/full_effv2s_ce.yaml'),
-    Path('configs/tryPractice/ControlledSingleVariable/stage5_ce.yaml'),
-    Path('configs/tryPractice/ControlledSingleVariable/stage5_coral.yaml'),
-    Path('configs/tryPractice/ControlledSingleVariable/stage5_corn.yaml'),
-    Path('configs/tryPractice/ControlledSingleVariable/stage5_ce_adjcon_m0.5_lam0.05.yaml'),
-    Path('configs/tryPractice/ControlledSingleVariable/stage5_ce_finetune_uniform.yaml'),
-    Path('configs/tryPractice/ControlledSingleVariable/stage5_ce_finetune_hardadj_w2.yaml'),
-    Path('configs/tryPractice/ControlledSingleVariable/stage5_beta_nll_reg1e-4.yaml'),
-    # GAP 前最终特征图精炼：M3～M6，旧 EfficientNetV2-S baseline 不重复运行。
-    Path('configs/tryPractice/FinalFeatureRefinement/m3_effv2s_msr.yaml'),
-    Path('configs/tryPractice/FinalFeatureRefinement/m4_fmr_efficientnet_msr_eca.yaml'),
-    Path('configs/tryPractice/FinalFeatureRefinement/m5_effv2s_dcn.yaml'),
-    Path('configs/tryPractice/FinalFeatureRefinement/m6_effv2s_msr_se.yaml'),
+
+    # 边界距离自适应 soft label：只改监督方式，不改 EfficientNetV2-S 模型结构。
+    Path('configs/tryPractice/BoundaryAdaptiveSoftLabel/boundary_baseline_ce.yaml'),
+    Path('configs/tryPractice/BoundaryAdaptiveSoftLabel/boundary_fixed_adjacent_soft_eps007.yaml'),
+    Path('configs/tryPractice/BoundaryAdaptiveSoftLabel/boundary_adaptive_soft_eps010_tau05.yaml'),
+    Path('configs/tryPractice/BoundaryAdaptiveSoftLabel/boundary_adaptive_soft_eps015_tau05.yaml'),
+    Path('configs/tryPractice/BoundaryAdaptiveSoftLabel/boundary_adaptive_soft_eps020_tau05.yaml'),
+    Path('configs/tryPractice/BoundaryAdaptiveSoftLabel/boundary_adaptive_soft_eps025_tau05.yaml'),
+    # Global-Local Attention 第一阶段：只比较 GAP、local-only、global+local pooling。
+    Path('configs/tryPractice/GlobalLocalAttention/gla_baseline_gap.yaml'),
+    Path('configs/tryPractice/GlobalLocalAttention/gla_local_only.yaml'),
+    Path('configs/tryPractice/GlobalLocalAttention/gla_global_local.yaml'),
+    # Global-Local Multi-Scale：GAP 与 3/5/7 DWConv 局部分支的完整控制变量实验。
+    Path('configs/tryPractice/GlobalLocalMultiScale/glms_baseline_gap.yaml'),
+    Path('configs/tryPractice/GlobalLocalMultiScale/glms_local_only.yaml'),
+    Path('configs/tryPractice/GlobalLocalMultiScale/glms_concat_fusion.yaml'),
+    Path('configs/tryPractice/GlobalLocalMultiScale/glms_gated_fusion.yaml'),
+    Path('configs/tryPractice/GlobalLocalMultiScale/glms_concat_adaptive_soft.yaml'),
 )
 
 # 在 PyCharm 中右键运行前，只需要编辑上面的 YAML 路径列表。

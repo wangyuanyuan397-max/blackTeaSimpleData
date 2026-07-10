@@ -549,6 +549,13 @@ class Trainer:
                 images, labels = batch_data
             else:
                 raise ValueError(f"Unexpected batch format: got {len(batch_data)} elements")
+            if sample_paths is not None:
+                if extra_targets is None:
+                    extra_targets = {}
+                else:
+                    extra_targets = dict(extra_targets)
+                # 部分自定义 loss 需要知道当前样本来自哪张图，例如按 00/05/.../60 前缀生成自适应 soft label。
+                extra_targets["sample_paths"] = sample_paths
             if self.sample_weights_by_path:
                 if sample_paths is None:
                     raise ValueError("逐样本加权要求数据集返回图片路径。")
