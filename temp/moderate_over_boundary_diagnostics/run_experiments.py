@@ -1,8 +1,9 @@
-"""针对 Moderate(2) 与 Over(3) 边界的五组临时诊断实验。"""
+"""针对 Moderate(2) 与 Over(3) 边界的多模型临时诊断实验。"""
 
 from __future__ import annotations
 
 import argparse
+import copy
 import csv
 import gc
 import html
@@ -19,6 +20,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import yaml
 from sklearn.metrics import (
     accuracy_score,
     cohen_kappa_score,
@@ -42,12 +44,11 @@ from src.data.loader import (  # noqa: E402
     build_patch_eval_transform,
     build_patch_train_transform,
 )
+import src.models  # noqa: E402,F401 - 导入时完成模型、骨干和分类头注册。
 from src.models.backbones.efficientnet_probabilistic_ordinal import (  # noqa: E402
     EfficientNetV2SProbabilisticOrdinalBackbone,
 )
-from src.models.backbones.efficientnet_stage_probe import (  # noqa: E402
-    EfficientNetV2SStageProbeBackbone,
-)
+from src.utils import MODELS  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -64,6 +65,36 @@ CLASS_TO_IDX = {"pre": 0, "slight": 1, "moderate": 2, "over": 3}
 FOUR_CLASS_NAMES = ["pre", "slight", "moderate", "over"]
 BINARY_CLASS_NAMES = ["moderate", "over"]
 T23_CANDIDATES = (0.65, 0.70, 0.75, 0.80, 0.85)
+LOGISTIC_NORMAL_MODEL_NAME = "efficientnet_v2_s_logistic_normal"
+
+
+@dataclass(frozen=True)
+class ModelSpec:
+    """一个可由项目模型 YAML 构建的分类模型。"""
+
+    name: str
+    config_path: Path
+
+
+# PyCharm 右键运行时会依次使用这些 YAML；可直接注释列表项来缩小模型范围。
+MODEL_CONFIG_LIST = (
+    ModelSpec(
+        "mambaout_tiny",
+        PROJECT_ROOT / "configs/fixed_split_patches_models/mambaout_tiny.yaml",
+    ),
+    ModelSpec(
+        "resnet50",
+        PROJECT_ROOT / "configs/fixed_split_patches_models/resnet50.yaml",
+    ),
+    ModelSpec(
+        "convnext_tiny",
+        PROJECT_ROOT / "configs/fixed_split_patches_models/convnext_tiny.yaml",
+    ),
+    ModelSpec(
+        "safnet_imagenet",
+        PROJECT_ROOT / "configs/fixed_split_patches_models/safnet_imagenet.yaml",
+    ),
+)
 
 
 @dataclass(frozen=True)
@@ -79,26 +110,26 @@ class ExperimentSpec:
     margin_weight: float = 0.0
 
 
-# 如只想跑其中一部分，可直接注释列表项；右键运行无需填写命令行参数。
+# 前四组会与 MODEL_CONFIG_LIST 做笛卡尔积；最后一组仍使用其专用 EfficientNet 模型。
 EXPERIMENT_LIST = (
-    ExperimentSpec("stage5_ce", "four_class", "stage5", "ce"),
+    ExperimentSpec("four_class_ce", "four_class", "configured", "ce"),
     ExperimentSpec(
-        "binary_moderate_over_stage5_ce",
+        "binary_moderate_over_ce",
         "moderate_over_binary",
-        "stage5",
+        "configured",
         "ce",
     ),
     ExperimentSpec(
-        "stage5_ce_mo_weight1.5",
+        "four_class_ce_mo_weight1.5",
         "four_class",
-        "stage5",
+        "configured",
         "mo_weighted_ce",
         moderate_over_weight=1.5,
     ),
     ExperimentSpec(
-        "stage5_ce_mo_logit_margin_m0.3_lam0.1",
+        "four_class_ce_mo_logit_margin_m0.3_lam0.1",
         "four_class",
-        "stage5",
+        "configured",
         "mo_logit_margin",
         margin=0.3,
         margin_weight=0.1,
@@ -110,7 +141,6 @@ EXPERIMENT_LIST = (
         "logistic_normal_nll",
     ),
 )
-
 
 @dataclass(frozen=True)
 class RuntimeSettings:
@@ -153,22 +183,6 @@ class ModerateOverDataset(Dataset):
     def __getitem__(self, index: int):
         image, original_label, path = self.base_dataset[self.indices[index]]
         return image, int(original_label) - 2, path
-
-
-class Stage5Classifier(nn.Module):
-    """EfficientNetV2-S Stage1～5 → GAP → Linear。"""
-
-    def __init__(self, num_classes: int, pretrained: bool) -> None:
-        super().__init__()
-        self.backbone = EfficientNetV2SStageProbeBackbone(
-            pretrained=pretrained,
-            output_stage=5,
-            trainable_stages=(1, 2, 3, 4, 5),
-        )
-        self.classifier = nn.Linear(self.backbone.out_features, num_classes)
-
-    def forward(self, images: torch.Tensor) -> torch.Tensor:
-        return self.classifier(self.backbone(images))
 
 
 def set_random_seed(seed: int) -> None:
@@ -248,22 +262,113 @@ def build_loaders(spec: ExperimentSpec):
     return train_loader, val_loader, test_loader
 
 
-def build_model(spec: ExperimentSpec, pretrained: bool = True) -> nn.Module:
-    if spec.model_type == "stage5":
-        num_classes = 2 if spec.task == "moderate_over_binary" else 4
-        return Stage5Classifier(num_classes=num_classes, pretrained=pretrained)
-    if spec.model_type == "logistic_normal":
-        return EfficientNetV2SProbabilisticOrdinalBackbone(
-            num_classes=4,
-            pretrained=pretrained,
-            distribution="logistic_normal",
-            use_ce_head=False,
-            final_dropout=0.0,
-            min_sigma=0.05,
-            max_sigma=5.0,
-            output_stage=6,
+def load_model_document(model_spec: ModelSpec) -> dict[str, Any]:
+    """读取并校验只包含 name/model 的模型 YAML 片段。"""
+    if not model_spec.config_path.is_file():
+        raise FileNotFoundError(f"模型配置不存在：{model_spec.config_path}")
+    with model_spec.config_path.open("r", encoding="utf-8") as file:
+        document = yaml.safe_load(file)
+    if not isinstance(document, dict):
+        raise ValueError(f"模型配置顶层必须是字典：{model_spec.config_path}")
+    if document.get("name") != model_spec.name:
+        raise ValueError(
+            "模型配置 name 与列表名称不一致："
+            f"列表={model_spec.name!r}，YAML={document.get('name')!r}"
         )
-    raise ValueError(f"未知 model_type：{spec.model_type}")
+    model_config = document.get("model")
+    if not isinstance(model_config, dict):
+        raise ValueError(f"模型配置缺少 model 字典：{model_spec.config_path}")
+    for section_name in ("backbone", "head"):
+        if not isinstance(model_config.get(section_name), dict):
+            raise ValueError(
+                f"模型配置缺少 model.{section_name} 字典：{model_spec.config_path}"
+            )
+    return document
+
+
+def prepare_model_document(
+    model_spec: ModelSpec | None,
+    spec: ExperimentSpec,
+    pretrained_override: bool | None,
+) -> dict[str, Any]:
+    """生成当前任务实际使用的模型配置，并正确覆盖 2/4 类分类头。"""
+    if spec.model_type == "logistic_normal":
+        if model_spec is not None:
+            raise ValueError("Logistic-Normal 专用实验不能绑定分类模型 YAML。")
+        return {
+            "name": LOGISTIC_NORMAL_MODEL_NAME,
+            "source": "built_in",
+            "model": {
+                "type": "efficientnet_v2_s_probabilistic_ordinal",
+                "num_classes": 4,
+                "pretrained": (
+                    True if pretrained_override is None else pretrained_override
+                ),
+                "distribution": "logistic_normal",
+                "use_ce_head": False,
+                "final_dropout": 0.0,
+                "min_sigma": 0.05,
+                "max_sigma": 5.0,
+                "output_stage": 6,
+            },
+        }
+    if spec.model_type != "configured" or model_spec is None:
+        raise ValueError(f"实验 {spec.name} 缺少可用的模型 YAML。")
+
+    document = copy.deepcopy(load_model_document(model_spec))
+    model_config = document["model"]
+    backbone_config = model_config["backbone"]
+    head_config = model_config["head"]
+    num_classes = 2 if spec.task == "moderate_over_binary" else 4
+
+    if pretrained_override is not None:
+        backbone_config["pretrained"] = pretrained_override
+    # ResNet/ConvNeXt 的类别数在外部 LinearHead；IdentityHead 也接受此字段。
+    head_config["num_classes"] = num_classes
+    # MambaOut/SAFNet 将分类器包在 backbone 内，二分类时必须覆盖这里。
+    if head_config.get("type") == "identity" or "num_classes" in backbone_config:
+        backbone_config["num_classes"] = num_classes
+    document["resolved_num_classes"] = num_classes
+    return document
+
+
+def build_model(spec: ExperimentSpec, model_document: dict[str, Any]) -> nn.Module:
+    """从已解析配置构建模型；输入会复制，避免注册表构造过程修改存档配置。"""
+    if spec.model_type == "logistic_normal":
+        params = copy.deepcopy(model_document["model"])
+        params.pop("type", None)
+        return EfficientNetV2SProbabilisticOrdinalBackbone(**params)
+
+    model_config = copy.deepcopy(model_document["model"])
+    model_type = model_config.pop("type")
+    model_config.pop("strategy", None)
+    model_class = MODELS.get(model_type)
+    return model_class(**model_config)
+
+
+def model_name_for_job(
+    model_spec: ModelSpec | None,
+    spec: ExperimentSpec,
+) -> str:
+    if spec.model_type == "logistic_normal":
+        return LOGISTIC_NORMAL_MODEL_NAME
+    if model_spec is None:
+        raise ValueError(f"实验 {spec.name} 缺少模型。")
+    return model_spec.name
+
+
+def build_jobs(
+    model_specs: list[ModelSpec],
+    specs: list[ExperimentSpec],
+) -> list[tuple[ModelSpec | None, ExperimentSpec]]:
+    """分类 YAML 与兼容实验交叉运行，专用概率实验只运行一次。"""
+    configured_specs = [spec for spec in specs if spec.model_type == "configured"]
+    special_specs = [spec for spec in specs if spec.model_type != "configured"]
+    return [
+        (model_spec, spec)
+        for model_spec in model_specs
+        for spec in configured_specs
+    ] + [(None, spec) for spec in special_specs]
 
 
 def primary_logits(outputs) -> torch.Tensor:
@@ -585,8 +690,9 @@ def save_json(path: Path, data: Any) -> None:
 def write_rows(path: Path, rows: list[dict[str, Any]]) -> None:
     if not rows:
         return
+    fieldnames = list(dict.fromkeys(key for row in rows for key in row))
     with path.open("w", encoding="utf-8-sig", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=list(rows[0].keys()))
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
 
@@ -607,6 +713,7 @@ def save_confusion_csv(run_directory: Path, metrics: dict[str, Any]) -> None:
 
 def write_experiment_report(
     run_directory: Path,
+    model_name: str,
     spec: ExperimentSpec,
     metrics: dict[str, Any],
     history: list[dict[str, Any]],
@@ -645,14 +752,14 @@ def write_experiment_report(
             "测试集未参与阈值选择。</p>"
         )
     document = f"""<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><title>{html.escape(spec.name)}</title>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>{html.escape(model_name)} · {html.escape(spec.name)}</title>
 <style>
 body{{max-width:1000px;margin:36px auto;padding:0 18px;font:15px/1.6 system-ui,"Microsoft YaHei",sans-serif;color:#172033}}
 .cards{{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}}
 .cards div{{padding:14px;border:1px solid #dfe5ef;border-radius:8px}}.cards span{{display:block;color:#667085}}.cards strong{{font-size:20px}}
 table{{width:100%;border-collapse:collapse;margin-top:12px}}th,td{{border:1px solid #dfe5ef;padding:8px;text-align:center}}th{{background:#f4f6fa}}
 </style></head><body>
-<h1>{html.escape(spec.name)}</h1>{threshold_note}<section class="cards">{cards}</section>
+<h1>{html.escape(model_name)}</h1><p>实验：{html.escape(spec.name)}</p>{threshold_note}<section class="cards">{cards}</section>
 <h2>测试集混淆矩阵</h2><table><thead><tr><th></th>{matrix_header}</tr></thead><tbody>{matrix_rows}</tbody></table>
 <p><a href="metrics.json">指标 JSON</a> · <a href="history.csv">训练历史</a> · <a href="confusion_matrix.csv">混淆矩阵 CSV</a></p>
 <p>最佳 epoch：{metrics['best_epoch']}；训练耗时：{metrics['training_time_seconds']:.2f}s；测试推理耗时：{metrics['test_inference_seconds']:.2f}s。</p>
@@ -663,21 +770,37 @@ table{{width:100%;border-collapse:collapse;margin-top:12px}}th,td{{border:1px so
 
 
 def run_experiment(
+    model_spec: ModelSpec | None,
     spec: ExperimentSpec,
     device: torch.device,
     batch_directory: Path,
     keep_pth: bool,
 ) -> dict[str, Any]:
     """完整训练一个实验，并把所有产物限制在当前临时批次目录。"""
+    model_name = model_name_for_job(model_spec, spec)
+    job_name = f"{model_name}/{spec.name}"
     print("\n" + "=" * 80)
-    print(f"开始临时实验：{spec.name}")
+    print(f"开始临时实验：{job_name}")
     print("=" * 80)
     set_random_seed(SETTINGS.seed)
-    run_directory = batch_directory / spec.name
+    run_directory = batch_directory / model_name / spec.name
     run_directory.mkdir(parents=True, exist_ok=False)
+    model_document = prepare_model_document(
+        model_spec,
+        spec,
+        pretrained_override=None,
+    )
+    model_config_path = (
+        model_spec.config_path.relative_to(PROJECT_ROOT).as_posix()
+        if model_spec is not None
+        else None
+    )
     save_json(
         run_directory / "config.json",
         {
+            "model_name": model_name,
+            "model_config_path": model_config_path,
+            "resolved_model_config": model_document,
             "experiment": asdict(spec),
             "runtime": asdict(SETTINGS),
             "dataset_root": str(DATASET_ROOT),
@@ -687,11 +810,14 @@ def run_experiment(
     )
 
     train_loader, val_loader, test_loader = build_loaders(spec)
-    model = build_model(spec, pretrained=True).to(device)
+    model = build_model(spec, model_document).to(device)
     total_parameters = sum(parameter.numel() for parameter in model.parameters())
     trainable_parameters = sum(
         parameter.numel() for parameter in model.parameters() if parameter.requires_grad
     )
+    backbone = getattr(model, "backbone", None)
+    requested_backbone_name = getattr(backbone, "requested_model_name", None)
+    actual_backbone_name = getattr(backbone, "actual_model_name", None)
     best_state, history, best_epoch, training_seconds = train_model(
         model,
         train_loader,
@@ -702,7 +828,13 @@ def run_experiment(
     model.load_state_dict(best_state, strict=True)
     if keep_pth:
         torch.save(
-            {"model_state_dict": best_state, "best_epoch": best_epoch},
+            {
+                "model_state_dict": best_state,
+                "best_epoch": best_epoch,
+                "model_name": model_name,
+                "experiment_name": spec.name,
+                "model_config_path": model_config_path,
+            },
             run_directory / "best_model.pth",
         )
 
@@ -745,7 +877,11 @@ def run_experiment(
 
     metrics.update(
         {
-            "model_name": spec.name,
+            "model_name": model_name,
+            "experiment_name": spec.name,
+            "model_config_path": model_config_path,
+            "requested_backbone_model_name": requested_backbone_name,
+            "actual_backbone_model_name": actual_backbone_name,
             "best_epoch": best_epoch,
             "training_time_seconds": training_seconds,
             "test_inference_seconds": testing["elapsed_seconds"],
@@ -760,9 +896,16 @@ def run_experiment(
     save_json(run_directory / "metrics.json", metrics)
     write_rows(run_directory / "history.csv", history)
     save_confusion_csv(run_directory, metrics)
-    report_path = write_experiment_report(run_directory, spec, metrics, history)
+    report_path = write_experiment_report(
+        run_directory,
+        model_name,
+        spec,
+        metrics,
+        history,
+    )
     result = {
-        "model_name": spec.name,
+        "model_name": model_name,
+        "experiment_name": spec.name,
         "status": "success",
         "accuracy": metrics["accuracy"],
         "macro_f1": metrics["macro_f1"],
@@ -793,17 +936,22 @@ def write_batch_report(batch_directory: Path, results: list[dict[str, Any]]) -> 
         rows.append(
             "<tr>"
             f"<td>{html.escape(str(result['model_name']))}</td>"
+            f"<td>{html.escape(str(result['experiment_name']))}</td>"
             f"<td>{html.escape(str(result['status']))}</td>"
             f"<td>{result.get('accuracy', '')}</td>"
             f"<td>{result.get('macro_f1', '')}</td>"
             f"<td>{result.get('acc_2_3', '')}</td>"
             f"<td>{result.get('selected_threshold_23', '')}</td>"
-            + (f"<td><a href=\{report_link}\>报告</a></td>" if report_link else "<td></td>")
+            + (
+                f'<td><a href="{html.escape(report_link, quote=True)}">报告</a></td>'
+                if report_link
+                else "<td></td>"
+            )
             + "</tr>"
         )
     document = f"""<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <title>Moderate/Over 边界诊断</title><style>body{{max-width:1000px;margin:36px auto;font:15px/1.6 system-ui,"Microsoft YaHei",sans-serif}}table{{width:100%;border-collapse:collapse}}th,td{{border:1px solid #ddd;padding:9px;text-align:center}}th{{background:#f4f6fa}}</style></head>
-<body><h1>Moderate ↔ Over 边界诊断</h1><table><thead><tr><th>实验</th><th>状态</th><th>Accuracy</th><th>Macro-F1</th><th>Acc_2_3</th><th>t23</th><th>报告</th></tr></thead><tbody>{''.join(rows)}</tbody></table></body></html>"""
+<body><h1>Moderate ↔ Over 边界诊断</h1><table><thead><tr><th>模型</th><th>实验</th><th>状态</th><th>Accuracy</th><th>Macro-F1</th><th>Acc_2_3</th><th>t23</th><th>报告</th></tr></thead><tbody>{''.join(rows)}</tbody></table></body></html>"""
     path = batch_directory / "summary.html"
     path.write_text(document, encoding="utf-8")
     return path
@@ -811,21 +959,51 @@ def write_batch_report(batch_directory: Path, results: list[dict[str, Any]]) -> 
 
 def select_experiments(names: list[str] | None) -> list[ExperimentSpec]:
     by_name = {spec.name: spec for spec in EXPERIMENT_LIST}
+    if len(by_name) != len(EXPERIMENT_LIST):
+        raise ValueError("EXPERIMENT_LIST 中存在重复实验名。")
     if not names:
         return list(EXPERIMENT_LIST)
     unknown = [name for name in names if name not in by_name]
     if unknown:
         raise ValueError(f"未知实验名：{unknown}")
+    if len(set(names)) != len(names):
+        raise ValueError("--experiments 中不能重复指定同一个实验。")
     return [by_name[name] for name in names]
 
 
-def run_dry_check(specs: list[ExperimentSpec], device: torch.device) -> None:
+def select_models(names: list[str] | None) -> list[ModelSpec]:
+    by_name = {model_spec.name: model_spec for model_spec in MODEL_CONFIG_LIST}
+    if len(by_name) != len(MODEL_CONFIG_LIST):
+        raise ValueError("MODEL_CONFIG_LIST 中存在重复模型名。")
+    if not names:
+        return list(MODEL_CONFIG_LIST)
+    unknown = [name for name in names if name not in by_name]
+    if unknown:
+        raise ValueError(f"未知模型名：{unknown}")
+    if len(set(names)) != len(names):
+        raise ValueError("--models 中不能重复指定同一个模型。")
+    return [by_name[name] for name in names]
+
+
+def run_dry_check(
+    model_specs: list[ModelSpec],
+    specs: list[ExperimentSpec],
+    device: torch.device,
+) -> None:
     """不下载预训练权重、不创建结果目录，只验证数据、模型和损失链路。"""
     print(f"数据集：{DATASET_ROOT}")
-    for spec in specs:
-        train_dataset, val_dataset, test_dataset = build_datasets(spec)
+    dataset_cache = {}
+    for model_spec, spec in build_jobs(model_specs, specs):
+        if spec.name not in dataset_cache:
+            dataset_cache[spec.name] = build_datasets(spec)
+        train_dataset, val_dataset, test_dataset = dataset_cache[spec.name]
         set_random_seed(SETTINGS.seed)
-        model = build_model(spec, pretrained=False).to(device)
+        model_document = prepare_model_document(
+            model_spec,
+            spec,
+            pretrained_override=False,
+        )
+        model = build_model(spec, model_document).to(device)
         model.train()
         images = torch.randn(2, 3, 64, 64, device=device)
         labels = (
@@ -834,12 +1012,24 @@ def run_dry_check(specs: list[ExperimentSpec], device: torch.device) -> None:
             else torch.tensor([2, 3], device=device)
         )
         outputs = model(images)
+        logits = primary_logits(outputs)
+        expected_num_classes = 2 if spec.task == "moderate_over_binary" else 4
+        expected_shape = (images.shape[0], expected_num_classes)
+        if tuple(logits.shape) != expected_shape:
+            raise RuntimeError(
+                f"{model_name_for_job(model_spec, spec)}/{spec.name} "
+                f"输出应为 {expected_shape}，实际为 {tuple(logits.shape)}。"
+            )
         loss = compute_loss(outputs, labels, spec)
         if not torch.isfinite(loss):
-            raise RuntimeError(f"{spec.name} dry-run loss 非有限值。")
-        output_shape = tuple(primary_logits(outputs).shape)
+            raise RuntimeError(
+                f"{model_name_for_job(model_spec, spec)}/{spec.name} "
+                "dry-run loss 非有限值。"
+            )
+        output_shape = tuple(logits.shape)
+        model_name = model_name_for_job(model_spec, spec)
         print(
-            f"{spec.name}: train/val/test="
+            f"{model_name}/{spec.name}: train/val/test="
             f"{len(train_dataset)}/{len(val_dataset)}/{len(test_dataset)}, "
             f"output={output_shape}, loss={float(loss.detach()):.6f}, PASS"
         )
@@ -856,6 +1046,11 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="临时 Moderate/Over 边界诊断实验。")
     parser.add_argument("--experiments", nargs="+", help="只运行指定实验名。")
     parser.add_argument(
+        "--models",
+        nargs="+",
+        help="只运行指定 YAML 模型；不影响独立的 Logistic-Normal 实验。",
+    )
+    parser.add_argument(
         "--device",
         choices=("auto", "cuda", "cpu"),
         default=PYCHARM_DEVICE,
@@ -863,34 +1058,50 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", default=PYCHARM_DRY_RUN)
     parser.add_argument("--keep-pth", action="store_true", default=PYCHARM_KEEP_PTH)
     parser.add_argument("--list-experiments", action="store_true")
+    parser.add_argument("--list-models", action="store_true")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_arguments()
     specs = select_experiments(args.experiments)
+    model_specs = select_models(args.models)
+    if args.list_models:
+        print("模型：")
+        for model_spec in model_specs:
+            print(f"  {model_spec.name}: {model_spec.config_path}")
     if args.list_experiments:
+        print("实验：")
         for spec in specs:
-            print(spec.name)
+            scope = "模型列表交叉运行" if spec.model_type == "configured" else "独立运行"
+            print(f"  {spec.name}: {scope}")
+    if args.list_models or args.list_experiments:
         return
     if not DATASET_ROOT.is_dir():
         raise FileNotFoundError(f"固定数据集不存在：{DATASET_ROOT}")
     device = resolve_device(args.device)
     if args.dry_run:
-        run_dry_check(specs, device)
+        run_dry_check(model_specs, specs, device)
         return
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     batch_directory = RESULTS_ROOT / f"batch_{timestamp}"
     batch_directory.mkdir(parents=True, exist_ok=False)
     results = []
-    for spec in specs:
+    for model_spec, spec in build_jobs(model_specs, specs):
+        model_name = model_name_for_job(model_spec, spec)
         try:
             results.append(
-                run_experiment(spec, device, batch_directory, bool(args.keep_pth))
+                run_experiment(
+                    model_spec,
+                    spec,
+                    device,
+                    batch_directory,
+                    bool(args.keep_pth),
+                )
             )
         except Exception as error:
-            failure_directory = batch_directory / spec.name
+            failure_directory = batch_directory / model_name / spec.name
             failure_directory.mkdir(parents=True, exist_ok=True)
             (failure_directory / "failure.txt").write_text(
                 f"{type(error).__name__}: {error}",
@@ -898,7 +1109,8 @@ def main() -> None:
             )
             results.append(
                 {
-                    "model_name": spec.name,
+                    "model_name": model_name,
+                    "experiment_name": spec.name,
                     "status": "failed",
                     "accuracy": None,
                     "macro_f1": None,
@@ -910,7 +1122,7 @@ def main() -> None:
                     "report_path": "",
                 }
             )
-            print(f"{spec.name} 失败：{error}")
+            print(f"{model_name}/{spec.name} 失败：{error}")
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()

@@ -1345,6 +1345,23 @@ def write_run_report(
         if keep_pth_files
         else '<span class="muted">最佳模型未保留（keep_pth_files=false）</span>'
     )
+    training_curve_path = run_directory / "training_curves.png"
+    if training_curve_path.exists():
+        training_curve_entry = '<a href="training_curves.png">训练曲线 PNG</a>'
+        training_curve_section = (
+            '<section><h2>训练曲线</h2>'
+            '<p class="muted">蓝色为训练集，红色为验证集；MAE 越低越好，QWK 越高越好。</p>'
+            '<a href="training_curves.png">'
+            '<img class="training-curve" src="training_curves.png" alt="训练曲线">'
+            '</a></section>'
+        )
+    else:
+        training_curve_entry = '<span class="muted">暂无训练曲线</span>'
+        training_curve_section = (
+            '<section><h2>训练曲线</h2>'
+            '<p class="muted">尚未完成任何 epoch，或绘图过程失败，因此没有可用曲线。</p>'
+            '</section>'
+        )
     per_class_rows = "".join(
         f"<tr><td>{html.escape(str(name))}</td><td>{float(value):.4%}</td></tr>"
         for name, value in (metrics.get("per_class_accuracy") or {}).items()
@@ -1376,6 +1393,7 @@ def write_run_report(
     table {{ border-collapse:collapse; width:100%; }} th,td {{ border:1px solid var(--line); padding:8px 10px; text-align:center; }} th {{ background:#f0f4fa; }}
     pre {{ overflow:auto; background:#101828; color:#e8eefc; padding:16px; border-radius:10px; }} pre.error {{ color:#ffd5d5; }}
     .scroll {{ overflow:auto; max-height:520px; }} a {{ color:var(--accent); }}
+    .training-curve {{ display:block; width:100%; height:auto; border:1px solid var(--line); border-radius:10px; }}
   </style>
 </head>
 <body><main>
@@ -1383,7 +1401,7 @@ def write_run_report(
     <h1>{html.escape(model_name)} 训练报告</h1>
     <p><span class="status {status_class}">{html.escape(status)}</span></p>
     <p class="muted">开始：{started_at.strftime('%Y-%m-%d %H:%M:%S')}　结束：{finished_at.strftime('%Y-%m-%d %H:%M:%S')}　耗时：{duration_seconds:.1f} 秒</p>
-    <p><a href="config.yaml">实际配置</a> · {checkpoint_entry} · <a href="test_metrics.json">测试指标 JSON</a> · <a href="history.json">训练历史 JSON</a> · <a href="train.log">训练日志</a></p>
+    <p><a href="config.yaml">实际配置</a> · {checkpoint_entry} · {training_curve_entry} · <a href="test_metrics.json">测试指标 JSON</a> · <a href="history.json">训练历史 JSON</a> · <a href="train.log">训练日志</a></p>
   </header>
   {error_section}
   <section><h2>测试集关键指标</h2><div class="metrics">{render_metric_cards(metrics)}</div></section>
@@ -1393,6 +1411,7 @@ def write_run_report(
   <section><h2>测试集归一化混淆矩阵</h2>{render_normalized_confusion_matrix(metrics)}</section>
   <section><h2>相邻边界准确率</h2>{render_boundary_accuracies(metrics)}</section>
   <section><h2>相邻严重程度混淆</h2>{render_adjacent_confusions(metrics)}</section>
+  {training_curve_section}
   <section><h2>训练历史</h2>{render_history_table(history)}</section>
   <section><h2>完整运行配置</h2><pre>{html.escape(config_json)}</pre></section>
 </main></body></html>"""

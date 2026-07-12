@@ -271,6 +271,29 @@ class Trainer:
             # finally 在正常结束/早停/未捕获异常时均会执行
             # 注意：若进程被外部强制 kill (SIGKILL/TerminateProcess) 则不会执行
             self.hook_manager.trigger("on_train_end", trainer=self)
+
+            # 只要至少完成了一个 epoch，就固定保存本次训练的曲线图。
+            # 放在 Trainer 内部可以同时覆盖 train.py、train_batch.py 和早停场景。
+            if self.history.get("train_loss"):
+                try:
+                    from ..utils.visualization import plot_training_curves
+
+                    training_curve_path = self.output_dir / "training_curves.png"
+                    saved_curve_path = plot_training_curves(
+                        self.history,
+                        training_curve_path,
+                    )
+                    if saved_curve_path is not None:
+                        self.logger.info(
+                            "training_curves_saved",
+                            path=str(training_curve_path),
+                        )
+                except Exception as curve_error:
+                    # 绘图属于训练产物，不应因为 Matplotlib 问题让已完成训练被判失败。
+                    self.logger.warning(
+                        "training_curves_save_failed",
+                        error=str(curve_error),
+                    )
             
             # 训练结束后按配置决定是否运行错误分析
             enable_error_analysis = bool(
