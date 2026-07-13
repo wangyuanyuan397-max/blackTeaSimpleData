@@ -22,3 +22,5 @@ runs/
 outputs/
 logs/
 temp/moderate_over_boundary_diagnostics/timepoint_results/
+temp/soft_supervision_diagnostics/results/
+temp/soft_supervision_diagnostics/logs/
