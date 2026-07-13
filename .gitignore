@@ -5,7 +5,11 @@ __pycache__/
 datasets/
 datasets_split/
 datasets_split_patches/
-tools/data/
+datas_test_point/
+datas_test_point_30_patches/
+tools/data/*
+!tools/data/crop_resize_30_patches.py
+!tools/data/prepare_timepoint_30_patches.py
 
 *.zip
 *.rar
@@ -17,3 +21,4 @@ tools/data/
 runs/
 outputs/
 logs/
+temp/moderate_over_boundary_diagnostics/timepoint_results/
