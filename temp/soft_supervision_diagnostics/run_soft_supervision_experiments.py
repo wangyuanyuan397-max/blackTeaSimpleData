@@ -4,6 +4,7 @@ This script is intentionally independent from the main training entrypoints.
 It compares:
 
 * CE baseline
+* CE retrain with equal teacher+student training budget
 * label smoothing
 * bootstrap-soft
 * fixed-teacher self-distillation
@@ -67,6 +68,7 @@ RESULTS_ROOT = TEMP_ROOT / "results"
 PYCHARM_DEVICE = "auto"
 PYCHARM_DRY_RUN = False
 PYCHARM_KEEP_PTH = False
+DEFAULT_SEEDS = (2026,)
 
 CLASS_TO_IDX = {"pre": 0, "slight": 1, "moderate": 2, "over": 3}
 CLASS_NAMES = ["pre", "slight", "moderate", "over"]
@@ -97,7 +99,7 @@ class RuntimeSettings:
     batch_size: int = 32
     val_batch_size: int = 64
     test_batch_size: int = 64
-    num_workers: int = 4
+    num_workers: int = 0
     patience: int = 30
     learning_rate: float = 1e-4
     weight_decay: float = 5e-4
@@ -135,6 +137,14 @@ EXPERIMENT_LIST = (
         description="Plain four-class cross entropy.",
     ),
     ExperimentSpec(
+        name="ce_retrain_same_cost",
+        method="ce_retrain",
+        description=(
+            "Equal-budget control: train/use a CE teacher stage, then reinitialize "
+            "a student and train CE without KD."
+        ),
+    ),
+    ExperimentSpec(
         name="label_smoothing_eps0.1",
         method="label_smoothing",
         description="Cross entropy with uniform label smoothing epsilon=0.1.",
@@ -154,6 +164,28 @@ EXPERIMENT_LIST = (
         kd_temperature=2.0,
         kd_hard_weight=0.7,
     ),
+    ExperimentSpec(
+        name="self_distill_t2_alpha0.5",
+        method="self_distill",
+        description="Optional alpha sweep: fixed T=2, hard weight=0.5.",
+        kd_temperature=2.0,
+        kd_hard_weight=0.5,
+    ),
+    ExperimentSpec(
+        name="self_distill_t2_alpha0.9",
+        method="self_distill",
+        description="Optional alpha sweep: fixed T=2, hard weight=0.9.",
+        kd_temperature=2.0,
+        kd_hard_weight=0.9,
+    ),
+)
+
+DEFAULT_EXPERIMENT_NAMES = (
+    "ce_baseline",
+    "ce_retrain_same_cost",
+    "label_smoothing_eps0.1",
+    "bootstrap_soft_beta0.8_warm30",
+    "self_distill_t2_alpha0.7",
 )
 
 TEACHER_CE_SPEC = ExperimentSpec(
@@ -378,7 +410,7 @@ def compute_training_loss(
 ) -> tuple[torch.Tensor, dict[str, float], torch.Tensor]:
     logits = primary_logits(model(images))
     components: dict[str, float] = {}
-    if experiment.method == "ce":
+    if experiment.method in ("ce", "ce_retrain"):
         loss = F.cross_entropy(logits, labels)
         components["hard_ce"] = float(loss.detach())
         return loss, components, logits
@@ -915,6 +947,7 @@ def train_internal_teacher(
     parent_directory: Path,
     device: torch.device,
     settings: RuntimeSettings,
+    teacher_for: str,
 ) -> dict[str, torch.Tensor]:
     teacher_directory = parent_directory / "teacher_ce"
     teacher_directory.mkdir(parents=True, exist_ok=False)
@@ -945,13 +978,129 @@ def train_internal_teacher(
         testing=testing,
         parameters_total=parameters_total,
         parameters_trainable=parameters_trainable,
-        extra={"teacher_for": "self_distill_t2_alpha0.7"},
+        extra={"teacher_for": teacher_for},
     )
     del teacher, train_loader, val_loader, test_loader, testing
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     return best_state
+
+
+def run_ce_retrain_experiment(
+    model_spec: ModelSpec,
+    experiment: ExperimentSpec,
+    datasets: dict[str, Dataset],
+    dataset_info: dict[str, Any],
+    batch_directory: Path,
+    device: torch.device,
+    settings: RuntimeSettings,
+    teacher_state: dict[str, torch.Tensor] | None,
+) -> tuple[dict[str, Any], dict[str, torch.Tensor]]:
+    print("\n" + "=" * 80)
+    print(f"Start job: {model_spec.name}/{experiment.name}")
+    print("=" * 80)
+    set_random_seed(settings.seed)
+    run_directory = batch_directory / model_spec.name / experiment.name
+    run_directory.mkdir(parents=True, exist_ok=False)
+    teacher_source = "ce_baseline_cache" if teacher_state is not None else "internal_teacher"
+    if teacher_state is None:
+        teacher_state = train_internal_teacher(
+            model_spec=model_spec,
+            datasets=datasets,
+            dataset_info=dataset_info,
+            parent_directory=run_directory,
+            device=device,
+            settings=settings,
+            teacher_for=experiment.name,
+        )
+
+    train_loader, val_loader, test_loader = build_loaders(datasets, settings)
+    teacher_document = prepare_model_document(model_spec, pretrained_override=None)
+    teacher = build_model(teacher_document).to(device)
+    teacher.load_state_dict(teacher_state, strict=True)
+    teacher.eval()
+    for parameter in teacher.parameters():
+        parameter.requires_grad_(False)
+    teacher_test = evaluate_model(teacher, test_loader, device, "CE teacher testing")
+    write_json(run_directory / "teacher_test_metrics.json", teacher_test["metrics"])
+
+    student_document = prepare_model_document(model_spec, pretrained_override=None)
+    student = build_model(student_document).to(device)
+    parameters_total, parameters_trainable = model_parameter_counts(student)
+    best_state, history, best_epoch, training_seconds = train_model(
+        model=student,
+        train_loader=train_loader,
+        val_loader=val_loader,
+        device=device,
+        settings=settings,
+        experiment=experiment,
+    )
+    student.load_state_dict(best_state, strict=True)
+    if settings.keep_pth:
+        torch.save(
+            {
+                "model_state_dict": best_state,
+                "model_name": model_spec.name,
+                "experiment_name": experiment.name,
+                "best_epoch": best_epoch,
+            },
+            run_directory / "best_model.pth",
+        )
+        torch.save(
+            {
+                "model_state_dict": teacher_state,
+                "model_name": model_spec.name,
+                "experiment_name": "teacher_ce",
+            },
+            run_directory / "teacher_model.pth",
+        )
+    testing = evaluate_model(student, test_loader, device, "Final CE-retrain testing")
+    metrics, report_path = save_run_outputs(
+        run_directory=run_directory,
+        model_spec=model_spec,
+        experiment=experiment,
+        model_document=student_document,
+        settings=settings,
+        dataset_info=dataset_info,
+        history=history,
+        best_epoch=best_epoch,
+        training_seconds=training_seconds,
+        testing=testing,
+        parameters_total=parameters_total,
+        parameters_trainable=parameters_trainable,
+        extra={
+            "teacher_source": teacher_source,
+            "teacher_test_accuracy": teacher_test["metrics"]["accuracy"],
+            "teacher_test_acc_2_3": teacher_test["metrics"]["acc_2_3"],
+            "equal_budget_control": True,
+        },
+    )
+    result = {
+        "model_name": model_spec.name,
+        "experiment_name": experiment.name,
+        "method": experiment.method,
+        "status": "success",
+        "accuracy": metrics["accuracy"],
+        "macro_f1": metrics["macro_f1"],
+        "qwk": metrics["qwk"],
+        "mae": metrics["mae"],
+        "acc_2_3": metrics["acc_2_3"],
+        "moderate_recall": metrics["class_wise"]["moderate"]["recall"],
+        "over_recall": metrics["class_wise"]["over"]["recall"],
+        "moderate_to_over_count": metrics["moderate_to_over_count"],
+        "over_to_moderate_count": metrics["over_to_moderate_count"],
+        "teacher_test_accuracy": teacher_test["metrics"]["accuracy"],
+        "teacher_test_acc_2_3": teacher_test["metrics"]["acc_2_3"],
+        "best_epoch": best_epoch,
+        "run_directory": str(run_directory),
+        "report_path": str(report_path),
+    }
+    del teacher, student, train_loader, val_loader, test_loader, teacher_test, testing
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    return result, teacher_state
 
 
 def run_self_distillation_experiment(
@@ -979,6 +1128,7 @@ def run_self_distillation_experiment(
             parent_directory=run_directory,
             device=device,
             settings=settings,
+            teacher_for=experiment.name,
         )
 
     train_loader, val_loader, test_loader = build_loaders(datasets, settings)
@@ -1153,6 +1303,7 @@ def write_batch_report(batch_directory: Path, results: Sequence[dict[str, Any]])
             report_link = Path(str(report_path)).relative_to(batch_directory).as_posix()
         rows.append(
             "<tr>"
+            f"<td>{html.escape(str(result.get('seed', '')))}</td>"
             f"<td>{html.escape(str(result['model_name']))}</td>"
             f"<td>{html.escape(str(result['experiment_name']))}</td>"
             f"<td>{html.escape(str(result['status']))}</td>"
@@ -1172,9 +1323,84 @@ def write_batch_report(batch_directory: Path, results: Sequence[dict[str, Any]])
 <title>Soft supervision diagnostics</title>
 <style>body{{max-width:1120px;margin:36px auto;font:15px/1.6 system-ui,"Microsoft YaHei",sans-serif}}table{{width:100%;border-collapse:collapse}}th,td{{border:1px solid #ddd;padding:9px;text-align:center}}th{{background:#f4f6fa}}</style>
 </head><body><h1>Soft supervision diagnostics</h1>
-<table><thead><tr><th>model</th><th>experiment</th><th>status</th><th>accuracy</th><th>macro-F1</th><th>acc_2_3</th><th>M to O</th><th>O to M</th><th>report</th></tr></thead><tbody>{''.join(rows)}</tbody></table>
+<table><thead><tr><th>seed</th><th>model</th><th>experiment</th><th>status</th><th>accuracy</th><th>macro-F1</th><th>acc_2_3</th><th>M to O</th><th>O to M</th><th>report</th></tr></thead><tbody>{''.join(rows)}</tbody></table>
 </body></html>"""
     path = batch_directory / "summary.html"
+    path.write_text(document, encoding="utf-8")
+    return path
+
+
+def mean_std(values: Sequence[Any]) -> tuple[float | None, float | None]:
+    numeric = [
+        float(value)
+        for value in values
+        if value is not None and value != ""
+    ]
+    if not numeric:
+        return None, None
+    if len(numeric) == 1:
+        return numeric[0], 0.0
+    return float(np.mean(numeric)), float(np.std(numeric, ddof=1))
+
+
+def write_aggregate_report(
+    batch_directory: Path,
+    results: Sequence[dict[str, Any]],
+) -> Path:
+    metric_names = (
+        "accuracy",
+        "macro_f1",
+        "qwk",
+        "mae",
+        "acc_2_3",
+        "moderate_recall",
+        "over_recall",
+        "moderate_to_over_count",
+        "over_to_moderate_count",
+    )
+    groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for result in results:
+        if result.get("status") != "success":
+            continue
+        groups[(str(result["model_name"]), str(result["experiment_name"]))].append(result)
+
+    rows = []
+    for (model_name, experiment_name), items in sorted(groups.items()):
+        row: dict[str, Any] = {
+            "model_name": model_name,
+            "experiment_name": experiment_name,
+            "n": len(items),
+            "seeds": " ".join(str(item.get("seed", "")) for item in items),
+        }
+        for metric_name in metric_names:
+            mean_value, std_value = mean_std([item.get(metric_name) for item in items])
+            row[f"{metric_name}_mean"] = mean_value
+            row[f"{metric_name}_std"] = std_value
+        rows.append(row)
+    write_rows(batch_directory / "aggregate_summary.csv", rows)
+
+    table_rows = []
+    for row in rows:
+        table_rows.append(
+            "<tr>"
+            f"<td>{html.escape(str(row['model_name']))}</td>"
+            f"<td>{html.escape(str(row['experiment_name']))}</td>"
+            f"<td>{row['n']}</td>"
+            f"<td>{row.get('accuracy_mean')}</td>"
+            f"<td>{row.get('accuracy_std')}</td>"
+            f"<td>{row.get('acc_2_3_mean')}</td>"
+            f"<td>{row.get('acc_2_3_std')}</td>"
+            f"<td>{row.get('moderate_to_over_count_mean')}</td>"
+            f"<td>{row.get('over_to_moderate_count_mean')}</td>"
+            + "</tr>"
+        )
+    document = f"""<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<title>Soft supervision aggregate summary</title>
+<style>body{{max-width:1120px;margin:36px auto;font:15px/1.6 system-ui,"Microsoft YaHei",sans-serif}}table{{width:100%;border-collapse:collapse}}th,td{{border:1px solid #ddd;padding:9px;text-align:center}}th{{background:#f4f6fa}}</style>
+</head><body><h1>Soft supervision aggregate summary</h1>
+<table><thead><tr><th>model</th><th>experiment</th><th>n</th><th>accuracy mean</th><th>accuracy std</th><th>acc_2_3 mean</th><th>acc_2_3 std</th><th>M to O mean</th><th>O to M mean</th></tr></thead><tbody>{''.join(table_rows)}</tbody></table>
+</body></html>"""
+    path = batch_directory / "aggregate_summary.html"
     path.write_text(document, encoding="utf-8")
     return path
 
@@ -1192,7 +1418,7 @@ def select_models(names: Sequence[str] | None) -> list[ModelSpec]:
 def select_experiments(names: Sequence[str] | None) -> list[ExperimentSpec]:
     by_name = {experiment.name: experiment for experiment in EXPERIMENT_LIST}
     if not names:
-        return list(EXPERIMENT_LIST)
+        return [by_name[name] for name in DEFAULT_EXPERIMENT_NAMES]
     unknown = [name for name in names if name not in by_name]
     if unknown:
         raise ValueError(f"Unknown experiments: {unknown}")
@@ -1201,7 +1427,10 @@ def select_experiments(names: Sequence[str] | None) -> list[ExperimentSpec]:
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run four-class CE, label smoothing, bootstrap-soft, and self-distillation."
+        description=(
+            "Run four-class CE, equal-budget CE retrain, label smoothing, "
+            "bootstrap-soft, and self-distillation."
+        )
     )
     parser.add_argument("--dataset-root", type=Path, default=DEFAULT_DATASET_ROOT)
     parser.add_argument("--models", nargs="+")
@@ -1216,6 +1445,13 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--val-batch-size", type=int, default=DEFAULT_SETTINGS.val_batch_size)
     parser.add_argument("--test-batch-size", type=int, default=DEFAULT_SETTINGS.test_batch_size)
     parser.add_argument("--num-workers", type=int, default=DEFAULT_SETTINGS.num_workers)
+    parser.add_argument(
+        "--seeds",
+        nargs="+",
+        type=int,
+        default=list(DEFAULT_SEEDS),
+        help="Random seeds to repeat. Example: --seeds 2026 2027 2028",
+    )
     return parser.parse_args()
 
 
@@ -1229,7 +1465,7 @@ def main() -> None:
             print(f"  {model_spec.name}: {model_spec.config_path}")
     if args.list_experiments:
         print("Experiments:")
-        for experiment in experiments:
+        for experiment in EXPERIMENT_LIST:
             print(f"  {experiment.name}: {experiment.description}")
     if args.list_models or args.list_experiments:
         return
@@ -1240,12 +1476,18 @@ def main() -> None:
         raise ValueError("Batch sizes must be positive.")
     if args.num_workers < 0:
         raise ValueError("--num-workers cannot be negative.")
+    if not args.seeds:
+        raise ValueError("--seeds must include at least one seed.")
+    seeds = [int(seed) for seed in args.seeds]
+    if len(set(seeds)) != len(seeds):
+        raise ValueError(f"--seeds contains duplicate values: {seeds}")
 
     dataset_root = args.dataset_root.expanduser().resolve()
     if not dataset_root.is_dir():
         raise FileNotFoundError(f"Dataset root does not exist: {dataset_root}")
-    settings = replace(
+    base_settings = replace(
         DEFAULT_SETTINGS,
+        seed=seeds[0],
         epochs=int(args.epochs),
         batch_size=int(args.batch_size),
         val_batch_size=int(args.val_batch_size),
@@ -1254,11 +1496,11 @@ def main() -> None:
         keep_pth=bool(args.keep_pth),
     )
     device = resolve_device(args.device)
-    datasets = build_datasets(dataset_root, settings)
+    datasets = build_datasets(dataset_root, base_settings)
     info = dataset_summary(datasets)
 
     if args.dry_run:
-        run_dry_check(model_specs, experiments, datasets, info, device, settings)
+        run_dry_check(model_specs, experiments, datasets, info, device, base_settings)
         return
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1270,71 +1512,95 @@ def main() -> None:
             "dataset_root": str(dataset_root),
             "models": [asdict(model_spec) for model_spec in model_specs],
             "experiments": [asdict(experiment) for experiment in experiments],
-            "runtime": asdict(settings),
+            "runtime": asdict(base_settings),
+            "seeds": seeds,
         },
     )
 
     results = []
-    teacher_state_cache: dict[str, dict[str, torch.Tensor]] = {}
-    for model_spec in model_specs:
-        for experiment in experiments:
-            try:
-                if experiment.method == "self_distill":
-                    result, teacher_state = run_self_distillation_experiment(
-                        model_spec=model_spec,
-                        experiment=experiment,
-                        datasets=datasets,
-                        dataset_info=info,
-                        batch_directory=batch_directory,
-                        device=device,
-                        settings=settings,
-                        teacher_state=teacher_state_cache.get(model_spec.name),
+    for seed in seeds:
+        settings = replace(base_settings, seed=seed)
+        seed_directory = batch_directory / f"seed_{seed}"
+        seed_directory.mkdir(parents=True, exist_ok=False)
+        teacher_state_cache: dict[str, dict[str, torch.Tensor]] = {}
+        for model_spec in model_specs:
+            for experiment in experiments:
+                try:
+                    if experiment.method == "self_distill":
+                        result, teacher_state = run_self_distillation_experiment(
+                            model_spec=model_spec,
+                            experiment=experiment,
+                            datasets=datasets,
+                            dataset_info=info,
+                            batch_directory=seed_directory,
+                            device=device,
+                            settings=settings,
+                            teacher_state=teacher_state_cache.get(model_spec.name),
+                        )
+                        teacher_state_cache[model_spec.name] = teacher_state
+                    elif experiment.method == "ce_retrain":
+                        result, teacher_state = run_ce_retrain_experiment(
+                            model_spec=model_spec,
+                            experiment=experiment,
+                            datasets=datasets,
+                            dataset_info=info,
+                            batch_directory=seed_directory,
+                            device=device,
+                            settings=settings,
+                            teacher_state=teacher_state_cache.get(model_spec.name),
+                        )
+                        teacher_state_cache[model_spec.name] = teacher_state
+                    else:
+                        result, best_state = run_standard_experiment(
+                            model_spec=model_spec,
+                            experiment=experiment,
+                            datasets=datasets,
+                            dataset_info=info,
+                            batch_directory=seed_directory,
+                            device=device,
+                            settings=settings,
+                        )
+                        if experiment.name == "ce_baseline":
+                            teacher_state_cache[model_spec.name] = best_state
+                except Exception as error:
+                    failure_directory = seed_directory / model_spec.name / experiment.name
+                    failure_directory.mkdir(parents=True, exist_ok=True)
+                    (failure_directory / "failure.txt").write_text(
+                        f"{type(error).__name__}: {error}",
+                        encoding="utf-8",
                     )
-                    teacher_state_cache[model_spec.name] = teacher_state
-                else:
-                    result, best_state = run_standard_experiment(
-                        model_spec=model_spec,
-                        experiment=experiment,
-                        datasets=datasets,
-                        dataset_info=info,
-                        batch_directory=batch_directory,
-                        device=device,
-                        settings=settings,
-                    )
-                    if experiment.name == "ce_baseline":
-                        teacher_state_cache[model_spec.name] = best_state
-            except Exception as error:
-                failure_directory = batch_directory / model_spec.name / experiment.name
-                failure_directory.mkdir(parents=True, exist_ok=True)
-                (failure_directory / "failure.txt").write_text(
-                    f"{type(error).__name__}: {error}",
-                    encoding="utf-8",
-                )
-                print(f"{model_spec.name}/{experiment.name} failed: {error}")
-                result = {
-                    "model_name": model_spec.name,
-                    "experiment_name": experiment.name,
-                    "method": experiment.method,
-                    "status": "failed",
-                    "accuracy": None,
-                    "macro_f1": None,
-                    "qwk": None,
-                    "mae": None,
-                    "acc_2_3": None,
-                    "moderate_recall": None,
-                    "over_recall": None,
-                    "moderate_to_over_count": None,
-                    "over_to_moderate_count": None,
-                    "best_epoch": None,
-                    "run_directory": str(failure_directory),
-                    "report_path": "",
-                }
-                gc.collect()
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-            results.append(result)
+                    print(f"{model_spec.name}/{experiment.name} seed={seed} failed: {error}")
+                    result = {
+                        "model_name": model_spec.name,
+                        "experiment_name": experiment.name,
+                        "method": experiment.method,
+                        "status": "failed",
+                        "accuracy": None,
+                        "macro_f1": None,
+                        "qwk": None,
+                        "mae": None,
+                        "acc_2_3": None,
+                        "moderate_recall": None,
+                        "over_recall": None,
+                        "moderate_to_over_count": None,
+                        "over_to_moderate_count": None,
+                        "best_epoch": None,
+                        "run_directory": str(failure_directory),
+                        "report_path": "",
+                    }
+                    gc.collect()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                result["seed"] = seed
+                results.append(result)
+        del teacher_state_cache
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
     summary_path = write_batch_report(batch_directory, results)
+    aggregate_path = write_aggregate_report(batch_directory, results)
     print(f"\nAll soft-supervision diagnostics finished: {summary_path}")
+    print(f"Aggregate mean/std report: {aggregate_path}")
     if any(result["status"] == "failed" for result in results):
         raise SystemExit(1)
 
