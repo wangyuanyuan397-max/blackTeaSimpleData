@@ -1,0 +1,11 @@
+name: mambaout_tiny_timm_ce
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: timm
+    model_name: mambaout_tiny.in1k
+    pretrained: true
+  head:
+    type: linear
+    drop_rate: 0.0

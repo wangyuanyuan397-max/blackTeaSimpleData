@@ -24,23 +24,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 COMMON_CONFIG = Path('configs/fixed_split_patches_train.yaml')
 CONFIG_LIST = (
 
-    # 边界距离自适应 soft label：只改监督方式，不改 EfficientNetV2-S 模型结构。
-    Path('configs/tryPractice/BoundaryAdaptiveSoftLabel/boundary_baseline_ce.yaml'),
-    Path('configs/tryPractice/BoundaryAdaptiveSoftLabel/boundary_fixed_adjacent_soft_eps007.yaml'),
-    Path('configs/tryPractice/BoundaryAdaptiveSoftLabel/boundary_adaptive_soft_eps010_tau05.yaml'),
-    Path('configs/tryPractice/BoundaryAdaptiveSoftLabel/boundary_adaptive_soft_eps015_tau05.yaml'),
-    Path('configs/tryPractice/BoundaryAdaptiveSoftLabel/boundary_adaptive_soft_eps020_tau05.yaml'),
-    Path('configs/tryPractice/BoundaryAdaptiveSoftLabel/boundary_adaptive_soft_eps025_tau05.yaml'),
-    # Global-Local Attention 第一阶段：只比较 GAP、local-only、global+local pooling。
-    Path('configs/tryPractice/GlobalLocalAttention/gla_baseline_gap.yaml'),
-    Path('configs/tryPractice/GlobalLocalAttention/gla_local_only.yaml'),
-    Path('configs/tryPractice/GlobalLocalAttention/gla_global_local.yaml'),
-    # Global-Local Multi-Scale：GAP 与 3/5/7 DWConv 局部分支的完整控制变量实验。
-    Path('configs/tryPractice/GlobalLocalMultiScale/glms_baseline_gap.yaml'),
-    Path('configs/tryPractice/GlobalLocalMultiScale/glms_local_only.yaml'),
-    Path('configs/tryPractice/GlobalLocalMultiScale/glms_concat_fusion.yaml'),
-    Path('configs/tryPractice/GlobalLocalMultiScale/glms_gated_fusion.yaml'),
-    Path('configs/tryPractice/GlobalLocalMultiScale/glms_concat_adaptive_soft.yaml'),
+
+    # 新 backbone 迁移对比：统一 224 输入、ImageNet-1K 预训练、hard-label CE。
+    Path('configs/tryPractice/TimmBackbone224/convnextv2_tiny_ce.yaml'),
+    Path('configs/tryPractice/TimmBackbone224/fasternet_t2_ce.yaml'),
+    Path('configs/tryPractice/TimmBackbone224/inceptionnext_tiny_ce.yaml'),
+    Path('configs/tryPractice/TimmBackbone224/repvit_m2_3_ce.yaml'),
+    Path('configs/tryPractice/TimmBackbone224/mambaout_tiny_timm_ce.yaml'),
 )
 
 # 在 PyCharm 中右键运行前，只需要编辑上面的 YAML 路径列表。

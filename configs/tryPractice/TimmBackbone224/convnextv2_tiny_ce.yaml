@@ -1,0 +1,11 @@
+name: convnextv2_tiny_ce
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: timm
+    model_name: convnextv2_tiny.fcmae_ft_in1k
+    pretrained: true
+  head:
+    type: linear
+    drop_rate: 0.0

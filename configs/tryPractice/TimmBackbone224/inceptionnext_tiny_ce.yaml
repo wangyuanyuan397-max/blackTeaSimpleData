@@ -1,0 +1,11 @@
+name: inceptionnext_tiny_ce
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: timm
+    model_name: inception_next_tiny.sail_in1k
+    pretrained: true
+  head:
+    type: linear
+    drop_rate: 0.0

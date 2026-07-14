@@ -1,0 +1,11 @@
+name: repvit_m2_3_ce
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: timm
+    model_name: repvit_m2_3.dist_450e_in1k
+    pretrained: true
+  head:
+    type: linear
+    drop_rate: 0.0
