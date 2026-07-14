@@ -1,0 +1,11 @@
+name: fastvit_sa24_256pre_224ft_ce
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: timm
+    model_name: fastvit_sa24.apple_in1k
+    pretrained: true
+  head:
+    type: linear
+    drop_rate: 0.0

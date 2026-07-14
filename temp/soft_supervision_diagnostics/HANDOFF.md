@@ -12,6 +12,12 @@ temp/soft_supervision_diagnostics/
 
 我们在 `datasets_split_patches` 四分类 patch 数据集上，验证软监督方法是否能改善红茶发酵程度分类，尤其是 `moderate` 和 `over` 两类边界过硬、互相误判的问题。
 
+当前自蒸馏已经被用户判断为“没效果，不管它了”。本目录现在重点转向：
+
+```text
+Structural Label Smoothing，SLS，结构化标签平滑
+```
+
 这不是时间点二分类诊断。时间点诊断在另一个目录：
 
 ```text
@@ -74,35 +80,33 @@ convnext_tiny
 safnet_imagenet
 ```
 
-对应 YAML：
-
-```text
-configs/fixed_split_patches_models/mambaout_tiny.yaml
-configs/fixed_split_patches_models/resnet50.yaml
-configs/fixed_split_patches_models/convnext_tiny.yaml
-configs/fixed_split_patches_models/safnet_imagenet.yaml
-```
-
 脚本已支持的实验：
 
 ```text
 ce_baseline
 ce_retrain_same_cost
+label_smoothing_eps0.05
 label_smoothing_eps0.1
+label_smoothing_eps0.2
+sls_c16_a0.1_b0.2
+sls_c32_a0.1_b0.2
+sls_c64_a0.1_b0.2
+reverse_sls_c32_a0.1_b0.2
 bootstrap_soft_beta0.8_warm30
-self_distill_t2_alpha0.7
 self_distill_t2_alpha0.5
+self_distill_t2_alpha0.7
 self_distill_t2_alpha0.9
 ```
 
-默认实验列表是：
+默认实验列表已经改为 SLS 方向：
 
 ```text
 ce_baseline
-ce_retrain_same_cost
 label_smoothing_eps0.1
-bootstrap_soft_beta0.8_warm30
-self_distill_t2_alpha0.7
+sls_c16_a0.1_b0.2
+sls_c32_a0.1_b0.2
+sls_c64_a0.1_b0.2
+reverse_sls_c32_a0.1_b0.2
 ```
 
 默认训练参数：
@@ -122,8 +126,6 @@ image_size = 224
 seed = 2026
 ```
 
-注意：`num_workers` 已改成默认 0，因为 Windows 上之前触发过 PyTorch DataLoader 共享内存映射错误。
-
 默认不保存 `.pth`。只有显式加：
 
 ```text
@@ -132,86 +134,82 @@ seed = 2026
 
 才会保存权重。
 
-## 这次新实现的方案
+## SLS 当前怎么实现
 
-用户希望按下面思路验证“当前自蒸馏正结果是否可靠”：
+这是工程版 SLS，不是训练自动编码器的论文原始复刻。
 
-1. 对 `MambaOut`、`ResNet-50`、`ConvNeXt` 各跑 3 个随机种子。
-2. 看均值和标准差，而不是只看单次结果。
-3. 增加 `CE-long / CE-retrain` 等训练量对照。
-4. 暂时不要大范围搜索 `T` 和 `alpha`。
-5. 如果重复实验稳定，再固定 `T=2`，只做 `alpha ∈ {0.5, 0.7, 0.9}` 的单变量实验。
-
-对应代码已实现：
-
-- 新增 `--seeds` 参数。
-- 每个 seed 单独落在：
-
-  ```text
-  results/batch_YYYYMMDD_HHMMSS/seed_2026/
-  results/batch_YYYYMMDD_HHMMSS/seed_2027/
-  results/batch_YYYYMMDD_HHMMSS/seed_2028/
-  ```
-
-- 新增 `ce_retrain_same_cost`。
-- 新增 `self_distill_t2_alpha0.5` 和 `self_distill_t2_alpha0.9`。
-- 批次结束后生成：
-
-  ```text
-  summary.csv
-  summary.html
-  aggregate_summary.csv
-  aggregate_summary.html
-  ```
-
-其中 `aggregate_summary.*` 是按 `model_name + experiment_name` 计算的均值和标准差。
-
-## ce_retrain_same_cost 是什么
-
-自蒸馏实际训练了两段：
+流程：
 
 ```text
-CE teacher -> 重新初始化 student -> CE + KD
+训练集 patch
+→ 冻结 ImageNet ResNet-50 提取特征
+→ L2 normalize
+→ StandardScaler
+→ PCA 到 128 维
+→ KMeans 聚类
+→ 每个簇内计算 MST 跨类别边比例
+→ 跨类别边比例越高，说明局部类别越混杂
+→ 混杂区域分配更大的 label smoothing alpha
+→ 用样本级 soft label 训练普通四分类模型
 ```
 
-普通 `ce_baseline` 只训练一段：
+只使用训练集建立区域，不碰验证集和测试集，避免数据泄漏。
+
+每个 SLS run 会额外输出：
 
 ```text
-CE model
+sls_summary.json
+sls_cluster_summary.csv
+sls_sample_assignments.csv
 ```
 
-所以如果自蒸馏提升，可能并不是蒸馏有效，而是因为“多训练了一次”或者“第二次初始化更好运气”。
+其中：
 
-`ce_retrain_same_cost` 就是等训练量对照：
+- `sls_summary.json`：整体 SLS 配置、实际 alpha 均值、alpha 范围、overlap score 范围。
+- `sls_cluster_summary.csv`：每个簇的样本数、类别数量、类别比例、overlap score、alpha。
+- `sls_sample_assignments.csv`：每个训练样本属于哪个簇、使用多少 alpha。
+
+## Reverse-SLS 是什么
+
+`reverse_sls_c32_a0.1_b0.2` 是反向对照。
+
+正常 SLS：
 
 ```text
-CE teacher -> 重新初始化 student -> 仍然只用 CE，不用 KD
+高混杂区域 → alpha 大
+低混杂区域 → alpha 小
 ```
 
-判断时应该比较：
+Reverse-SLS：
 
 ```text
-ce_baseline
-ce_retrain_same_cost
-self_distill_t2_alpha0.7
+高混杂区域 → alpha 小
+低混杂区域 → alpha 大
 ```
 
-如果 `self_distill_t2_alpha0.7` 只比 `ce_baseline` 好，但不比 `ce_retrain_same_cost` 好，就不能说是蒸馏带来的提升。
+如果正常 SLS 比 Reverse-SLS 稳定更好，才说明“重叠区域应该更强平滑”这个方向是有信息量的。
 
 ## 当前卡在哪
 
-现在不再卡在代码实现上。脚本已经支持用户提出的方案。
+当前不是代码实现卡住，而是需要正式跑实验。
 
-真正需要做的是正式跑实验。之前有一次正式跑失败，原因不是 loss 逻辑错误，而是 Windows + PyTorch DataLoader 多 worker 触发：
+已知历史坑：Windows + PyTorch DataLoader 多 worker 曾经触发：
 
 ```text
 RuntimeError: Couldn't open shared file mapping: <torch_...>, error code: <1455>
 ```
 
-已经通过两层方式规避：
+因此脚本默认：
 
-1. 脚本默认 `num_workers = 0`。
-2. README 中所有正式命令仍显式写 `--num-workers 0`。
+```text
+num_workers = 0
+```
+
+命令里仍建议显式写：
+
+```text
+--num-workers 0
+```
 
 ## 下一步计划
 
@@ -221,57 +219,44 @@ RuntimeError: Couldn't open shared file mapping: <torch_...>, error code: <1455>
 conda run -n yolov8 python temp\soft_supervision_diagnostics\run_soft_supervision_experiments.py --dry-run --device cpu --num-workers 0
 ```
 
-第二步，正式跑三模型三 seed 的重复实验：
+第二步，正式跑三模型三 seed，多 C 值 + 反向对照：
 
 ```powershell
-conda run -n yolov8 python temp\soft_supervision_diagnostics\run_soft_supervision_experiments.py --device auto --num-workers 0 --models mambaout_tiny resnet50 convnext_tiny --experiments ce_baseline ce_retrain_same_cost self_distill_t2_alpha0.7 --seeds 2026 2027 2028
+conda run -n yolov8 python temp\soft_supervision_diagnostics\run_soft_supervision_experiments.py --device auto --num-workers 0 --models mambaout_tiny resnet50 convnext_tiny --experiments ce_baseline label_smoothing_eps0.1 sls_c16_a0.1_b0.2 sls_c32_a0.1_b0.2 sls_c64_a0.1_b0.2 reverse_sls_c32_a0.1_b0.2 --seeds 2026 2027 2028
 ```
 
-第三步，跑完后看：
+第三步，看批次汇总：
 
 ```text
+temp/soft_supervision_diagnostics/results/batch_YYYYMMDD_HHMMSS/summary.csv
 temp/soft_supervision_diagnostics/results/batch_YYYYMMDD_HHMMSS/aggregate_summary.csv
 temp/soft_supervision_diagnostics/results/batch_YYYYMMDD_HHMMSS/aggregate_summary.html
 ```
 
 判断逻辑：
 
-- 如果自蒸馏平均提升约 1.5 个百分点，但 seed 标准差约 2 个百分点，说明正结果不可靠。
-- 如果 3 个 seed 都稳定高于 `ce_baseline` 和 `ce_retrain_same_cost`，才说明自蒸馏确实有效。
+- SLS 是否稳定优于 `ce_baseline`。
+- SLS 是否稳定优于 `label_smoothing_eps0.1`。
+- 正向 SLS 是否优于 `reverse_sls_c32_a0.1_b0.2`。
+- C=16/32/64 是否结果方向一致；如果只有某个 C 有效，要小心偶然性。
 
-第四步，如果重复结果稳定，再做固定 `T=2` 的 alpha 单变量：
+第四步，可选跑统一 LS alpha 对照：
 
 ```powershell
-conda run -n yolov8 python temp\soft_supervision_diagnostics\run_soft_supervision_experiments.py --device auto --num-workers 0 --models mambaout_tiny resnet50 convnext_tiny --experiments ce_baseline ce_retrain_same_cost self_distill_t2_alpha0.5 self_distill_t2_alpha0.7 self_distill_t2_alpha0.9 --seeds 2026 2027 2028
+conda run -n yolov8 python temp\soft_supervision_diagnostics\run_soft_supervision_experiments.py --device auto --num-workers 0 --models mambaout_tiny resnet50 convnext_tiny --experiments ce_baseline label_smoothing_eps0.05 label_smoothing_eps0.1 label_smoothing_eps0.2 sls_c32_a0.1_b0.2 reverse_sls_c32_a0.1_b0.2 --seeds 2026 2027 2028
 ```
 
 ## 绝对不要再踩的坑
 
 1. 不要在 Windows 上用多 worker 正式跑。
 
-   之前已经触发过：
-
-   ```text
-   Couldn't open shared file mapping, error code 1455
-   ```
-
-   虽然脚本默认已经是 0，但命令里仍建议显式写：
+   用：
 
    ```text
    --num-workers 0
    ```
 
-2. 不要把旧失败 batch 当成有效结果。
-
-   旧失败目录类似：
-
-   ```text
-   temp/soft_supervision_diagnostics/results/batch_20260713_231638/
-   ```
-
-   它没有完整 `summary.csv`，只是失败排查材料。
-
-3. 不要默认保存 `.pth`。
+2. 不要默认保存 `.pth`。
 
    用户明确不想保留权重。除非用户主动要求，否则不要加：
 
@@ -279,26 +264,37 @@ conda run -n yolov8 python temp\soft_supervision_diagnostics\run_soft_supervisio
    --keep-pth
    ```
 
-4. 不要把 `self_distill` 写成从 teacher 权重继续训练。
+3. 不要把 SLS 的聚类/BER 估计用到 val/test。
 
-   正确逻辑是：
+   SLS 区域只能用训练集建立，否则会数据泄漏。
 
-   ```text
-   teacher 固定 eval + no_grad
-   student 重新初始化
-   student 学 CE + KD
-   ```
+4. 不要把当前 SLS 说成论文原始完整复刻。
 
-5. 不要第一轮就二维搜索 `T` 和 `alpha`。
-
-   当前策略是：
+   当前是工程适配：
 
    ```text
-   先重复 T=2, alpha=0.7
-   稳定后固定 T=2，只改 alpha
+   冻结 ResNet-50 特征 + PCA + KMeans + MST overlap proxy
    ```
 
-6. 不要混淆两个实验目录。
+   原论文更接近：
+
+   ```text
+   自动编码器特征 + KMeans + Henze-Penrose/Bayes error bound
+   ```
+
+5. 不要只看一次 seed。
+
+   用户已经明确说“可以多试几个，以免偶然”。建议至少：
+
+   ```text
+   --seeds 2026 2027 2028
+   ```
+
+6. 不要只比较 SLS 和 CE。
+
+   必须同时看统一 LS 和 Reverse-SLS，否则不知道提升来自“平滑本身”还是“结构化分配方向”。
+
+7. 不要混淆两个实验目录。
 
    ```text
    temp/soft_supervision_diagnostics/
@@ -312,15 +308,15 @@ conda run -n yolov8 python temp\soft_supervision_diagnostics\run_soft_supervisio
 
    是按时间点做 moderate/over 边界诊断。
 
-7. 不要提交 `results/` 或 `logs/`。
+8. 不要提交 `results/` 或 `logs/`。
 
-   它们已经在 `.gitignore`，如果 git status 里出现大量结果文件，先查 `.gitignore`，不要直接 `git add -A`。
+   它们已经在 `.gitignore`，如果 git status 里出现大量结果文件，先查 `.gitignore`。
 
 ## 文件职责
 
 `run_soft_supervision_experiments.py`
 
-主实验脚本。负责构建数据集、模型、loss、训练、测试、保存指标和报告。
+主实验脚本。负责构建数据集、模型、loss、训练、测试、SLS 区域分析、保存指标和报告。
 
 `README.md`
 

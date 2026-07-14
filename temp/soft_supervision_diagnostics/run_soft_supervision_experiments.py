@@ -6,6 +6,7 @@ It compares:
 * CE baseline
 * CE retrain with equal teacher+student training budget
 * label smoothing
+* structural label smoothing
 * bootstrap-soft
 * fixed-teacher self-distillation
 
@@ -40,12 +41,21 @@ from sklearn.metrics import (
     cohen_kappa_score,
     confusion_matrix,
     f1_score,
+    pairwise_distances,
     precision_recall_fscore_support,
 )
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
+
+try:
+    from scipy.sparse.csgraph import minimum_spanning_tree
+except ImportError:  # pragma: no cover - scipy is expected with sklearn, fallback is below.
+    minimum_spanning_tree = None
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -90,6 +100,13 @@ class ExperimentSpec:
     bootstrap_warmup_epochs: int = 30
     kd_temperature: float = 2.0
     kd_hard_weight: float = 0.7
+    sls_average_alpha: float = 0.1
+    sls_beta: float = 0.2
+    sls_cluster_count: int = 32
+    sls_pca_dim: int = 128
+    sls_min_alpha: float = 0.0
+    sls_max_alpha: float = 0.3
+    sls_feature_model: str = "resnet50"
 
 
 @dataclass(frozen=True)
@@ -151,6 +168,62 @@ EXPERIMENT_LIST = (
         label_smoothing=0.1,
     ),
     ExperimentSpec(
+        name="label_smoothing_eps0.05",
+        method="label_smoothing",
+        description="Cross entropy with uniform label smoothing epsilon=0.05.",
+        label_smoothing=0.05,
+    ),
+    ExperimentSpec(
+        name="label_smoothing_eps0.2",
+        method="label_smoothing",
+        description="Cross entropy with uniform label smoothing epsilon=0.2.",
+        label_smoothing=0.2,
+    ),
+    ExperimentSpec(
+        name="sls_c16_a0.1_b0.2",
+        method="structural_label_smoothing",
+        description=(
+            "Structural label smoothing: ResNet-50 features, PCA-128, "
+            "KMeans C=16, average alpha=0.1, beta=0.2."
+        ),
+        sls_average_alpha=0.1,
+        sls_beta=0.2,
+        sls_cluster_count=16,
+    ),
+    ExperimentSpec(
+        name="sls_c32_a0.1_b0.2",
+        method="structural_label_smoothing",
+        description=(
+            "Structural label smoothing: ResNet-50 features, PCA-128, "
+            "KMeans C=32, average alpha=0.1, beta=0.2."
+        ),
+        sls_average_alpha=0.1,
+        sls_beta=0.2,
+        sls_cluster_count=32,
+    ),
+    ExperimentSpec(
+        name="sls_c64_a0.1_b0.2",
+        method="structural_label_smoothing",
+        description=(
+            "Structural label smoothing: ResNet-50 features, PCA-128, "
+            "KMeans C=64, average alpha=0.1, beta=0.2."
+        ),
+        sls_average_alpha=0.1,
+        sls_beta=0.2,
+        sls_cluster_count=64,
+    ),
+    ExperimentSpec(
+        name="reverse_sls_c32_a0.1_b0.2",
+        method="reverse_structural_label_smoothing",
+        description=(
+            "Reverse-SLS control: intentionally gives stronger smoothing to "
+            "lower-overlap regions."
+        ),
+        sls_average_alpha=0.1,
+        sls_beta=0.2,
+        sls_cluster_count=32,
+    ),
+    ExperimentSpec(
         name="bootstrap_soft_beta0.8_warm30",
         method="bootstrap_soft",
         description="CE warmup, then beta*y + (1-beta)*stopgrad(p_model).",
@@ -182,10 +255,11 @@ EXPERIMENT_LIST = (
 
 DEFAULT_EXPERIMENT_NAMES = (
     "ce_baseline",
-    "ce_retrain_same_cost",
     "label_smoothing_eps0.1",
-    "bootstrap_soft_beta0.8_warm30",
-    "self_distill_t2_alpha0.7",
+    "sls_c16_a0.1_b0.2",
+    "sls_c32_a0.1_b0.2",
+    "sls_c64_a0.1_b0.2",
+    "reverse_sls_c32_a0.1_b0.2",
 )
 
 TEACHER_CE_SPEC = ExperimentSpec(
@@ -193,6 +267,11 @@ TEACHER_CE_SPEC = ExperimentSpec(
     method="ce",
     description="Internal CE teacher for self-distillation.",
 )
+
+SLS_METHODS = {
+    "structural_label_smoothing",
+    "reverse_structural_label_smoothing",
+}
 
 
 def set_random_seed(seed: int) -> None:
@@ -375,6 +454,300 @@ def soft_cross_entropy(logits: torch.Tensor, soft_targets: torch.Tensor) -> torc
     return -(soft_targets * log_probabilities).sum(dim=1).mean()
 
 
+def sample_dependent_smoothing_targets(
+    labels: torch.Tensor,
+    alphas: torch.Tensor,
+    num_classes: int,
+) -> torch.Tensor:
+    if num_classes <= 1:
+        raise ValueError("num_classes must be greater than 1.")
+    if alphas.ndim != 1 or alphas.shape[0] != labels.shape[0]:
+        raise ValueError(
+            f"alphas must be shape [{labels.shape[0]}], got {tuple(alphas.shape)}"
+        )
+    alphas = alphas.to(dtype=torch.float32).clamp(0.0, 1.0)
+    off_value = alphas / float(num_classes - 1)
+    targets = off_value.unsqueeze(1).repeat(1, num_classes)
+    targets.scatter_(1, labels.unsqueeze(1), (1.0 - alphas).unsqueeze(1))
+    return targets
+
+
+def mst_cross_label_rate(features: np.ndarray, labels: np.ndarray) -> float:
+    sample_count = int(labels.shape[0])
+    if sample_count <= 1 or len(set(int(label) for label in labels)) <= 1:
+        return 0.0
+    distances = pairwise_distances(features, metric="euclidean")
+    np.fill_diagonal(distances, 0.0)
+    if minimum_spanning_tree is not None:
+        tree = minimum_spanning_tree(distances).tocoo()
+        if tree.row.size == 0:
+            return 0.0
+        cross_edges = labels[tree.row] != labels[tree.col]
+        return float(np.mean(cross_edges))
+
+    # Conservative fallback if scipy is unavailable: use each sample's nearest
+    # non-self neighbor as a local crossing proxy.
+    distances[distances == 0.0] = np.inf
+    nearest = np.argmin(distances, axis=1)
+    return float(np.mean(labels != labels[nearest]))
+
+
+def rebalance_alphas_to_weighted_mean(
+    alpha_values: np.ndarray,
+    weights: np.ndarray,
+    target_mean: float,
+    minimum: float,
+    maximum: float,
+) -> np.ndarray:
+    values = np.clip(alpha_values.astype(np.float64), minimum, maximum)
+    weights = weights.astype(np.float64)
+    if weights.sum() <= 0:
+        return values
+    weights = weights / weights.sum()
+    for _ in range(32):
+        current_mean = float(np.sum(values * weights))
+        delta = float(target_mean - current_mean)
+        if abs(delta) < 1e-8:
+            break
+        if delta > 0:
+            movable = values < maximum - 1e-12
+        else:
+            movable = values > minimum + 1e-12
+        movable_weight = float(np.sum(weights[movable]))
+        if movable_weight <= 0:
+            break
+        values[movable] = np.clip(
+            values[movable] + delta / movable_weight,
+            minimum,
+            maximum,
+        )
+    return values
+
+
+def compute_sls_cluster_alphas(
+    overlap_scores: np.ndarray,
+    cluster_sizes: np.ndarray,
+    experiment: ExperimentSpec,
+) -> np.ndarray:
+    average_alpha = float(experiment.sls_average_alpha)
+    beta = float(experiment.sls_beta)
+    minimum = float(experiment.sls_min_alpha)
+    maximum = float(experiment.sls_max_alpha)
+    if not 0.0 <= average_alpha <= 1.0:
+        raise ValueError("sls_average_alpha must be in [0, 1].")
+    if not 0.0 <= minimum <= maximum <= 1.0:
+        raise ValueError("SLS alpha bounds must satisfy 0 <= min <= max <= 1.")
+    if not minimum <= average_alpha <= maximum:
+        raise ValueError("sls_average_alpha must fall inside [sls_min_alpha, sls_max_alpha].")
+    weights = cluster_sizes.astype(np.float64)
+    weights = weights / max(float(weights.sum()), 1.0)
+    weighted_score_mean = float(np.sum(overlap_scores * weights))
+    direction = -1.0 if experiment.method == "reverse_structural_label_smoothing" else 1.0
+    raw_alphas = average_alpha + direction * beta * (overlap_scores - weighted_score_mean)
+    return rebalance_alphas_to_weighted_mean(
+        raw_alphas,
+        weights,
+        target_mean=average_alpha,
+        minimum=minimum,
+        maximum=maximum,
+    )
+
+
+def build_sls_feature_extractor(
+    feature_model_name: str,
+    device: torch.device,
+) -> nn.Module:
+    model_specs = {model_spec.name: model_spec for model_spec in MODEL_CONFIG_LIST}
+    if feature_model_name not in model_specs:
+        raise ValueError(
+            f"Unknown SLS feature model {feature_model_name!r}; "
+            f"available={sorted(model_specs)}"
+        )
+    model_document = prepare_model_document(
+        model_specs[feature_model_name],
+        pretrained_override=None,
+    )
+    model_document["model"]["return_embeddings"] = True
+    model = build_model(model_document).to(device)
+    model.eval()
+    for parameter in model.parameters():
+        parameter.requires_grad_(False)
+    return model
+
+
+def extract_sls_features(
+    train_dataset: Dataset,
+    device: torch.device,
+    settings: RuntimeSettings,
+    feature_model_name: str,
+) -> tuple[np.ndarray, np.ndarray, list[str]]:
+    feature_dataset = ImageFolderWithPaths(
+        train_dataset.root,
+        transform=build_patch_eval_transform(settings.image_size),
+        class_to_idx=CLASS_TO_IDX,
+    )
+    feature_loader = DataLoader(
+        feature_dataset,
+        batch_size=settings.test_batch_size,
+        shuffle=False,
+        num_workers=settings.num_workers,
+        pin_memory=torch.cuda.is_available(),
+        persistent_workers=settings.num_workers > 0,
+        drop_last=False,
+    )
+    feature_model = build_sls_feature_extractor(feature_model_name, device)
+    features_all: list[np.ndarray] = []
+    labels_all: list[np.ndarray] = []
+    paths_all: list[str] = []
+    with torch.no_grad():
+        for images, labels, paths in tqdm(
+            feature_loader,
+            desc=f"SLS feature extraction ({feature_model_name})",
+            leave=False,
+        ):
+            images = images.to(device, non_blocking=True)
+            outputs = feature_model(images)
+            if isinstance(outputs, tuple):
+                features = outputs[1]
+            else:
+                features = primary_logits(outputs)
+            features = F.normalize(features.float(), p=2, dim=1)
+            features_all.append(features.detach().cpu().numpy())
+            labels_all.append(labels.detach().cpu().numpy())
+            paths_all.extend(str(path) for path in paths)
+    del feature_model, feature_loader, feature_dataset
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    return (
+        np.concatenate(features_all, axis=0),
+        np.concatenate(labels_all, axis=0).astype(np.int64),
+        paths_all,
+    )
+
+
+def build_structural_label_smoothing_plan(
+    train_dataset: Dataset,
+    device: torch.device,
+    settings: RuntimeSettings,
+    experiment: ExperimentSpec,
+) -> dict[str, Any]:
+    started = time.perf_counter()
+    features, labels, paths = extract_sls_features(
+        train_dataset=train_dataset,
+        device=device,
+        settings=settings,
+        feature_model_name=experiment.sls_feature_model,
+    )
+    if features.shape[0] != labels.shape[0] or features.shape[0] != len(paths):
+        raise RuntimeError("SLS feature extraction returned inconsistent lengths.")
+
+    scaler = StandardScaler()
+    scaled_features = scaler.fit_transform(features)
+    pca_dim = int(min(experiment.sls_pca_dim, scaled_features.shape[0] - 1, scaled_features.shape[1]))
+    if pca_dim <= 0:
+        raise ValueError("SLS PCA dimension must be positive after clipping.")
+    pca = PCA(n_components=pca_dim, random_state=settings.seed)
+    reduced_features = pca.fit_transform(scaled_features)
+
+    cluster_count = int(min(experiment.sls_cluster_count, reduced_features.shape[0]))
+    if cluster_count <= 1:
+        raise ValueError("SLS requires at least two clusters.")
+    kmeans = KMeans(
+        n_clusters=cluster_count,
+        random_state=settings.seed,
+        n_init=10,
+    )
+    cluster_ids = kmeans.fit_predict(reduced_features)
+
+    cluster_sizes = np.zeros(cluster_count, dtype=np.int64)
+    overlap_scores = np.zeros(cluster_count, dtype=np.float64)
+    class_count_matrix = np.zeros((cluster_count, len(CLASS_NAMES)), dtype=np.int64)
+    for cluster_index in range(cluster_count):
+        mask = cluster_ids == cluster_index
+        cluster_labels = labels[mask]
+        cluster_features = reduced_features[mask]
+        cluster_sizes[cluster_index] = int(cluster_labels.shape[0])
+        class_count_matrix[cluster_index] = np.bincount(
+            cluster_labels,
+            minlength=len(CLASS_NAMES),
+        )
+        overlap_scores[cluster_index] = mst_cross_label_rate(
+            cluster_features,
+            cluster_labels,
+        )
+
+    cluster_alphas = compute_sls_cluster_alphas(
+        overlap_scores=overlap_scores,
+        cluster_sizes=cluster_sizes,
+        experiment=experiment,
+    )
+    sample_alphas = cluster_alphas[cluster_ids]
+    sample_alpha_by_path = {
+        str(path): float(alpha)
+        for path, alpha in zip(paths, sample_alphas)
+    }
+
+    cluster_rows: list[dict[str, Any]] = []
+    for cluster_index in range(cluster_count):
+        counts = class_count_matrix[cluster_index]
+        row: dict[str, Any] = {
+            "cluster_id": int(cluster_index),
+            "sample_count": int(cluster_sizes[cluster_index]),
+            "overlap_score_mst_cross_edge_rate": float(overlap_scores[cluster_index]),
+            "alpha": float(cluster_alphas[cluster_index]),
+            "unique_classes": int(np.count_nonzero(counts)),
+        }
+        for class_index, class_name in enumerate(CLASS_NAMES):
+            row[f"count_{class_name}"] = int(counts[class_index])
+            row[f"ratio_{class_name}"] = (
+                float(counts[class_index] / max(cluster_sizes[cluster_index], 1))
+            )
+        cluster_rows.append(row)
+
+    sample_rows = []
+    for path, label, cluster_id, alpha in zip(paths, labels, cluster_ids, sample_alphas):
+        sample_rows.append(
+            {
+                "image_path": str(path),
+                "label": int(label),
+                "label_name": CLASS_NAMES[int(label)],
+                "cluster_id": int(cluster_id),
+                "cluster_overlap_score": float(overlap_scores[int(cluster_id)]),
+                "alpha": float(alpha),
+            }
+        )
+
+    weights = cluster_sizes.astype(np.float64) / max(float(cluster_sizes.sum()), 1.0)
+    summary = {
+        "method": experiment.method,
+        "feature_model": experiment.sls_feature_model,
+        "requested_clusters": int(experiment.sls_cluster_count),
+        "actual_clusters": int(cluster_count),
+        "requested_pca_dim": int(experiment.sls_pca_dim),
+        "actual_pca_dim": int(pca_dim),
+        "average_alpha_target": float(experiment.sls_average_alpha),
+        "average_alpha_actual": float(np.mean(sample_alphas)),
+        "weighted_cluster_alpha": float(np.sum(cluster_alphas * weights)),
+        "alpha_min": float(np.min(sample_alphas)),
+        "alpha_max": float(np.max(sample_alphas)),
+        "alpha_std": float(np.std(sample_alphas)),
+        "overlap_score_min": float(np.min(overlap_scores)),
+        "overlap_score_max": float(np.max(overlap_scores)),
+        "overlap_score_weighted_mean": float(np.sum(overlap_scores * weights)),
+        "single_class_clusters": int(
+            sum(1 for row in cluster_rows if int(row["unique_classes"]) == 1)
+        ),
+        "elapsed_seconds": float(time.perf_counter() - started),
+    }
+    return {
+        "sample_alpha_by_path": sample_alpha_by_path,
+        "cluster_rows": cluster_rows,
+        "sample_rows": sample_rows,
+        "summary": summary,
+    }
+
+
 def self_distillation_loss(
     student_logits: torch.Tensor,
     teacher_logits: torch.Tensor,
@@ -407,6 +780,7 @@ def compute_training_loss(
     experiment: ExperimentSpec,
     epoch: int,
     teacher: nn.Module | None = None,
+    sample_alphas: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, dict[str, float], torch.Tensor]:
     logits = primary_logits(model(images))
     components: dict[str, float] = {}
@@ -421,6 +795,22 @@ def compute_training_loss(
             label_smoothing=float(experiment.label_smoothing),
         )
         components["label_smoothing_ce"] = float(loss.detach())
+        return loss, components, logits
+    if experiment.method in SLS_METHODS:
+        if sample_alphas is None:
+            raise ValueError(f"{experiment.method} requires sample_alphas.")
+        soft_target = sample_dependent_smoothing_targets(
+            labels=labels,
+            alphas=sample_alphas.to(device=labels.device),
+            num_classes=logits.shape[1],
+        ).to(dtype=logits.dtype)
+        hard_loss = F.cross_entropy(logits, labels)
+        loss = soft_cross_entropy(logits, soft_target)
+        components["hard_ce"] = float(hard_loss.detach())
+        components["sls_soft_ce"] = float(loss.detach())
+        components["sls_alpha_mean"] = float(sample_alphas.detach().mean().item())
+        components["sls_alpha_min"] = float(sample_alphas.detach().min().item())
+        components["sls_alpha_max"] = float(sample_alphas.detach().max().item())
         return loss, components, logits
     if experiment.method == "bootstrap_soft":
         hard_loss = F.cross_entropy(logits, labels)
@@ -625,6 +1015,7 @@ def train_model(
     settings: RuntimeSettings,
     experiment: ExperimentSpec,
     teacher: nn.Module | None = None,
+    sample_alpha_by_path: dict[str, float] | None = None,
 ) -> tuple[dict[str, torch.Tensor], list[dict[str, Any]], int, float]:
     optimizer = AdamW(
         model.parameters(),
@@ -650,13 +1041,30 @@ def train_model(
         model.train()
         train_samples = 0
         component_sums: dict[str, float] = defaultdict(float)
-        for images, labels, _ in tqdm(
+        for images, labels, paths in tqdm(
             train_loader,
             desc=f"{experiment.name} epoch {epoch}/{settings.epochs}",
             leave=False,
         ):
             images = images.to(device, non_blocking=True)
             labels = labels.to(device, non_blocking=True)
+            sample_alphas = None
+            if sample_alpha_by_path is not None:
+                missing_paths = [
+                    str(path)
+                    for path in paths
+                    if str(path) not in sample_alpha_by_path
+                ]
+                if missing_paths:
+                    raise KeyError(
+                        "SLS alpha missing for training paths, first missing: "
+                        f"{missing_paths[0]}"
+                    )
+                sample_alphas = torch.tensor(
+                    [sample_alpha_by_path[str(path)] for path in paths],
+                    dtype=torch.float32,
+                    device=device,
+                )
             optimizer.zero_grad(set_to_none=True)
             loss, components, _ = compute_training_loss(
                 model=model,
@@ -665,6 +1073,7 @@ def train_model(
                 experiment=experiment,
                 epoch=epoch,
                 teacher=teacher,
+                sample_alphas=sample_alphas,
             )
             loss.backward()
             optimizer.step()
@@ -870,6 +1279,7 @@ def run_standard_experiment(
     batch_directory: Path,
     device: torch.device,
     settings: RuntimeSettings,
+    sls_plan_cache: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any], dict[str, torch.Tensor]]:
     print("\n" + "=" * 80)
     print(f"Start job: {model_spec.name}/{experiment.name}")
@@ -877,6 +1287,36 @@ def run_standard_experiment(
     set_random_seed(settings.seed)
     run_directory = batch_directory / model_spec.name / experiment.name
     run_directory.mkdir(parents=True, exist_ok=False)
+    sls_plan = None
+    sample_alpha_by_path = None
+    extra: dict[str, Any] = {}
+    if experiment.method in SLS_METHODS:
+        cache_key = (
+            f"seed={settings.seed}|method={experiment.method}|"
+            f"feature={experiment.sls_feature_model}|"
+            f"clusters={experiment.sls_cluster_count}|"
+            f"pca={experiment.sls_pca_dim}|"
+            f"avg={experiment.sls_average_alpha}|"
+            f"beta={experiment.sls_beta}|"
+            f"min={experiment.sls_min_alpha}|"
+            f"max={experiment.sls_max_alpha}"
+        )
+        if sls_plan_cache is not None and cache_key in sls_plan_cache:
+            sls_plan = sls_plan_cache[cache_key]
+        else:
+            sls_plan = build_structural_label_smoothing_plan(
+                train_dataset=datasets["train"],
+                device=device,
+                settings=settings,
+                experiment=experiment,
+            )
+            if sls_plan_cache is not None:
+                sls_plan_cache[cache_key] = sls_plan
+        sample_alpha_by_path = sls_plan["sample_alpha_by_path"]
+        write_json(run_directory / "sls_summary.json", sls_plan["summary"])
+        write_rows(run_directory / "sls_cluster_summary.csv", sls_plan["cluster_rows"])
+        write_rows(run_directory / "sls_sample_assignments.csv", sls_plan["sample_rows"])
+        extra["sls_summary"] = sls_plan["summary"]
     train_loader, val_loader, test_loader = build_loaders(datasets, settings)
     model_document = prepare_model_document(model_spec, pretrained_override=None)
     model = build_model(model_document).to(device)
@@ -888,6 +1328,7 @@ def run_standard_experiment(
         device=device,
         settings=settings,
         experiment=experiment,
+        sample_alpha_by_path=sample_alpha_by_path,
     )
     model.load_state_dict(best_state, strict=True)
     if settings.keep_pth:
@@ -914,6 +1355,7 @@ def run_standard_experiment(
         testing=testing,
         parameters_total=parameters_total,
         parameters_trainable=parameters_trainable,
+        extra=extra if extra else None,
     )
     result = {
         "model_name": model_spec.name,
@@ -933,6 +1375,17 @@ def run_standard_experiment(
         "run_directory": str(run_directory),
         "report_path": str(report_path),
     }
+    if sls_plan is not None:
+        result.update(
+            {
+                "sls_average_alpha_actual": sls_plan["summary"]["average_alpha_actual"],
+                "sls_alpha_min": sls_plan["summary"]["alpha_min"],
+                "sls_alpha_max": sls_plan["summary"]["alpha_max"],
+                "sls_overlap_score_weighted_mean": sls_plan["summary"][
+                    "overlap_score_weighted_mean"
+                ],
+            }
+        )
     del model, train_loader, val_loader, test_loader, testing
     gc.collect()
     if torch.cuda.is_available():
@@ -1263,6 +1716,21 @@ def run_dry_check(
                     teacher=teacher,
                 )
                 del teacher
+            elif experiment.method in SLS_METHODS:
+                sample_alphas = torch.full(
+                    (labels.shape[0],),
+                    float(experiment.sls_average_alpha),
+                    dtype=torch.float32,
+                    device=device,
+                )
+                loss, components, logits = compute_training_loss(
+                    model=model,
+                    images=images,
+                    labels=labels,
+                    experiment=experiment,
+                    epoch=1,
+                    sample_alphas=sample_alphas,
+                )
             else:
                 epoch = experiment.bootstrap_warmup_epochs + 1
                 loss, components, logits = compute_training_loss(
@@ -1523,6 +1991,7 @@ def main() -> None:
         seed_directory = batch_directory / f"seed_{seed}"
         seed_directory.mkdir(parents=True, exist_ok=False)
         teacher_state_cache: dict[str, dict[str, torch.Tensor]] = {}
+        sls_plan_cache: dict[str, dict[str, Any]] = {}
         for model_spec in model_specs:
             for experiment in experiments:
                 try:
@@ -1559,6 +2028,7 @@ def main() -> None:
                             batch_directory=seed_directory,
                             device=device,
                             settings=settings,
+                            sls_plan_cache=sls_plan_cache,
                         )
                         if experiment.name == "ce_baseline":
                             teacher_state_cache[model_spec.name] = best_state
@@ -1593,7 +2063,7 @@ def main() -> None:
                         torch.cuda.empty_cache()
                 result["seed"] = seed
                 results.append(result)
-        del teacher_state_cache
+        del teacher_state_cache, sls_plan_cache
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()

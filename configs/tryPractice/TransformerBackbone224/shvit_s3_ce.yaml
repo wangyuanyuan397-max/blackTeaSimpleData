@@ -1,0 +1,11 @@
+name: shvit_s3_ce
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: timm
+    model_name: shvit_s3.in1k
+    pretrained: true
+  head:
+    type: linear
+    drop_rate: 0.0
