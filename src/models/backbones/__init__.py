@@ -20,6 +20,7 @@ from .efficientnet_gated import (
     EfficientNetV2SGatedRefinementBackbone,
     EfficientNetV2SMultiStageGatedFusionBackbone,
 )
+from .vim import VimSmallMiddleClsTokenBackbone
 
 try:
     from .mambaout import MambaOutTinyCEBackbone
@@ -46,6 +47,7 @@ __all__ = [
     'EfficientNetV2SGlobalLocalMultiScaleBackbone',
     'EfficientNetV2SGatedRefinementBackbone',
     'EfficientNetV2SMultiStageGatedFusionBackbone',
+    'VimSmallMiddleClsTokenBackbone',
     "MambaOutTinyCEBackbone",
     "ResNet50",
     "SAFNetBackbone",

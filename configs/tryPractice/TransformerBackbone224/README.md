@@ -15,7 +15,14 @@
 - `fastvit_sa24_256pre_224ft_ce`: `fastvit_sa24.apple_in1k`
 - `efficientformerv2_s2_ce`: `efficientformerv2_s2.snap_dist_in1k`
 - `shvit_s3_ce`: `shvit_s3.in1k`
+- `vim_small_midclstok_ce`: official `vim/models_mamba.py` + `hustvl/Vim-small-midclstok`
 
 注意：FastViT-SA24 的 ImageNet-1K 官方预训练输入为 256x256，本实验仍使用统一的 224x224 下游输入，因此命名中写为 `256pre_224ft`。EfficientFormerV2-S2 的 checkpoint 名中带 `dist`，表示 ImageNet 预训练阶段使用过蒸馏；红茶下游训练仍然只是普通 CE。
+
+Vim 不是 timm 内置模型。运行 `vim_small_midclstok_ce` 前需要额外准备：
+
+- 将 HUST-VL/Vim 官方仓库放到 `external/Vim`，保证存在 `external/Vim/vim/models_mamba.py`。
+- 安装官方 Vim 所需依赖，通常包括 `mamba_ssm`、`causal_conv1d`、`triton`。
+- 预训练权重默认从 Hugging Face repo `hustvl/Vim-small-midclstok` 下载；如果服务器不能联网，可以在 YAML 中增加 `checkpoint_path` 指向本地权重文件。
 
 RepViT-M2.3 已经在 `configs/tryPractice/TimmBackbone224` 中配置过，不在这一组重复计数。
