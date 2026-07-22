@@ -1,0 +1,13 @@
+# Auto-generated 5-class copy for datasets_01234.
+# Source: configs/fixed_split_patches_models/resnet50.yaml
+name: fixed_resnet50
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: torchvision
+    model_name: resnet50
+    pretrained: true
+  head:
+    type: linear
+    drop_rate: 0.0

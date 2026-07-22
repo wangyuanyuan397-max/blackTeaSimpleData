@@ -1,0 +1,14 @@
+# Auto-generated 5-class copy for datasets_01234.
+# Source: configs/fixed_split_patches_models/safnet_imagenet.yaml
+name: fixed_safnet_imagenet
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: safnet
+    pretrained: true
+    num_classes: 5
+    reduction: 16
+  head:
+    type: identity
+    drop_rate: 0.0

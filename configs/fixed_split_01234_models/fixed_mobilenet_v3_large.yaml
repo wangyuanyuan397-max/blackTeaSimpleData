@@ -1,0 +1,13 @@
+# Auto-generated 5-class copy for datasets_01234.
+# Source: configs/fixed_split_patches_models/mobilenet_v3_large.yaml
+name: fixed_mobilenet_v3_large
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: torchvision
+    model_name: mobilenet_v3_large
+    pretrained: true
+  head:
+    type: linear
+    drop_rate: 0.0

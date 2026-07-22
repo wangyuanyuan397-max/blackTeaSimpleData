@@ -1,0 +1,17 @@
+# Auto-generated 5-class copy for datasets_01234.
+# Source: configs/tryPractice/Attention/ca_pall.yaml
+name: attention_ca_pall
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: efficientnet_v2_s_stage_attention
+    pretrained: true
+    num_classes: 5
+    attention_type: ca
+    attention_positions: [1, 2, 3, 4, 5, 6]
+    ca_reduction: 32
+    final_dropout: 0.2
+  head:
+    type: identity
+    drop_rate: 0.0

@@ -1,0 +1,13 @@
+# Auto-generated 5-class copy for datasets_01234.
+# Source: configs/fixed_split_patches_models/convnext_tiny.yaml
+name: fixed_convnext_tiny
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: torchvision
+    model_name: convnext_tiny
+    pretrained: true
+  head:
+    type: linear
+    drop_rate: 0.0

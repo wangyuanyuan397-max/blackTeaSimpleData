@@ -1,0 +1,65 @@
+# 01234 时间点五分类数据集的公共训练配置。
+# 这个配置专门服务于 datasets_01234，不影响原来的 pre/slight/moderate/over 四分类实验。
+experiment_name: fixed_split_01234_224_ce
+
+dataset_root: datasets_01234
+runs_root: runs_01234
+
+# 统一随机种子，便于和旧实验保持可复现的比较。
+random_seed: 2026
+
+# 目录名是时间点字符串，必须加引号，避免 YAML 把 00 解析成数字。
+class_to_idx:
+  "00": 0
+  "10": 1
+  "20": 2
+  "30": 3
+  "40": 4
+
+# datasets_01234 已经是 224×224 patch，因此继续使用 patch 版 transform。
+data:
+  type: image_folder
+  train_transform:
+    type: patch_train_224
+    image_size: 224
+  eval_transform:
+    type: patch_eval_224
+    image_size: 224
+  test_transform:
+    type: patch_eval_224
+    image_size: 224
+
+# 训练超参沿用当前固定 patch 实验；如果服务器显存允许，可只在这里统一调整 batch_size/epochs。
+train:
+  epochs: 150
+  batch_size: 32
+  val_batch_size: 64
+  test_batch_size: 64
+  accumulation_steps: 1
+  num_workers: 4
+  weighted_sampler: false
+  patience: 30
+  selection_metric: val_acc
+  selection_mode: max
+  selection_min_delta: 0.0
+  enable_error_analysis: false
+  error_analysis_save_images: false
+  tta_mode: mean
+  tta_topk: 0
+  tta_compare: false
+  tta_compare_modes: []
+  keep_pth_files: false
+
+optimizer:
+  type: adamw
+  lr: 0.0001
+  weight_decay: 0.0005
+
+scheduler:
+  type: cosine
+  warmup_epochs: 2
+  min_lr: 0.000001
+
+loss:
+  type: cross_entropy
+  label_smoothing: 0.0

@@ -1,0 +1,18 @@
+# Auto-generated 5-class copy for datasets_01234.
+# Source: configs/tryPractice/Attention/cbam_p456.yaml
+name: attention_cbam_p456
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: efficientnet_v2_s_stage_attention
+    pretrained: true
+    num_classes: 5
+    attention_type: cbam
+    attention_positions: [4, 5, 6]
+    cbam_reduction: 16
+    cbam_spatial_kernel_size: 7
+    final_dropout: 0.2
+  head:
+    type: identity
+    drop_rate: 0.0
