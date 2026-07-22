@@ -1,0 +1,191 @@
+{
+  "project_root": "E:\\workspaces\\python\\BlackTeaSimpleData",
+  "dataset_root": "E:\\workspaces\\python\\BlackTeaSimpleData\\datasets_01234",
+  "run_dir": "E:\\workspaces\\python\\BlackTeaSimpleData\\temp\\useOnce\\input_pipeline_sanity_runs\\check_20260722_235356",
+  "batch_stats": {
+    "images_shape": [
+      16,
+      3,
+      224,
+      224
+    ],
+    "images_dtype": "torch.float32",
+    "images_min": -2.0357141494750977,
+    "images_max": 2.640000104904175,
+    "images_mean": -0.18969497084617615,
+    "images_std": 0.7150373458862305,
+    "labels_first_20": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      0,
+      1,
+      2,
+      3,
+      4,
+      0,
+      1,
+      2,
+      3,
+      4,
+      0
+    ],
+    "labels_dtype": "torch.int64",
+    "label_bincount": [
+      4,
+      3,
+      3,
+      3,
+      3
+    ],
+    "class_names": [
+      "00",
+      "10",
+      "20",
+      "30",
+      "40"
+    ],
+    "selected_class_counts": {
+      "00": 4,
+      "10": 3,
+      "20": 3,
+      "30": 3,
+      "40": 3
+    },
+    "sample_paths_first_10": [
+      "datasets_01234/train/00/t00__4-1__random55_005.jpg",
+      "datasets_01234/train/10/t10__2-2__random55_013.jpg",
+      "datasets_01234/train/20/t20__2-3__random55_026.jpg",
+      "datasets_01234/train/30/t30__1-1__random55_054.jpg",
+      "datasets_01234/train/40/t40__6-2__random55_005.jpg",
+      "datasets_01234/train/00/t00__2-2__random55_028.jpg",
+      "datasets_01234/train/10/t10__6-4__random55_001.jpg",
+      "datasets_01234/train/20/t20__5-1__random55_033.jpg",
+      "datasets_01234/train/30/t30__2-2__random55_038.jpg",
+      "datasets_01234/train/40/t40__5-2__random55_049.jpg"
+    ]
+  },
+  "resize_rgb_metrics": [
+    {
+      "target_relpath": "train/00/t00__2-1__random55_001.jpg",
+      "source_relpath": "00/2-1.bmp",
+      "crop_size": "408x408",
+      "saved_size": "224x224",
+      "mean_abs_diff_rgb_pipeline": 2.2802734375,
+      "mean_abs_diff_if_bgr_swapped": 26.506410598754883,
+      "rgb_channel_mean_saved": [
+        126.75813293457031,
+        109.49938201904297,
+        87.75416564941406
+      ]
+    },
+    {
+      "target_relpath": "train/00/t00__2-1__random55_002.jpg",
+      "source_relpath": "00/2-1.bmp",
+      "crop_size": "408x408",
+      "saved_size": "224x224",
+      "mean_abs_diff_rgb_pipeline": 2.2787587642669678,
+      "mean_abs_diff_if_bgr_swapped": 26.80375099182129,
+      "rgb_channel_mean_saved": [
+        126.32511901855469,
+        108.6984634399414,
+        86.86848449707031
+      ]
+    },
+    {
+      "target_relpath": "train/00/t00__2-1__random55_003.jpg",
+      "source_relpath": "00/2-1.bmp",
+      "crop_size": "408x408",
+      "saved_size": "224x224",
+      "mean_abs_diff_rgb_pipeline": 2.403825283050537,
+      "mean_abs_diff_if_bgr_swapped": 31.95406150817871,
+      "rgb_channel_mean_saved": [
+        148.27235412597656,
+        127.5138931274414,
+        101.15794372558594
+      ]
+    },
+    {
+      "target_relpath": "train/00/t00__2-1__random55_004.jpg",
+      "source_relpath": "00/2-1.bmp",
+      "crop_size": "408x408",
+      "saved_size": "224x224",
+      "mean_abs_diff_rgb_pipeline": 2.163823366165161,
+      "mean_abs_diff_if_bgr_swapped": 31.412256240844727,
+      "rgb_channel_mean_saved": [
+        147.1300048828125,
+        126.7429428100586,
+        100.74186706542969
+      ]
+    },
+    {
+      "target_relpath": "train/00/t00__2-1__random55_005.jpg",
+      "source_relpath": "00/2-1.bmp",
+      "crop_size": "408x408",
+      "saved_size": "224x224",
+      "mean_abs_diff_rgb_pipeline": 2.306056022644043,
+      "mean_abs_diff_if_bgr_swapped": 28.171794891357422,
+      "rgb_channel_mean_saved": [
+        134.70362854003906,
+        116.11531066894531,
+        93.22978973388672
+      ]
+    },
+    {
+      "target_relpath": "train/00/t00__2-1__random55_006.jpg",
+      "source_relpath": "00/2-1.bmp",
+      "crop_size": "408x408",
+      "saved_size": "224x224",
+      "mean_abs_diff_rgb_pipeline": 2.5102903842926025,
+      "mean_abs_diff_if_bgr_swapped": 29.024946212768555,
+      "rgb_channel_mean_saved": [
+        144.0025177001953,
+        125.38570404052734,
+        101.32503509521484
+      ]
+    }
+  ],
+  "model_update_metrics": {
+    "model_name": "efficientnet_v2_s",
+    "probe_parameter": "classifier.1.weight",
+    "logits_shape": [
+      5,
+      5
+    ],
+    "labels_shape": [
+      5
+    ],
+    "labels_dtype": "torch.int64",
+    "labels_min": 0,
+    "labels_max": 4,
+    "loss": 1.7305303812026978,
+    "predictions_first_20": [
+      2,
+      3,
+      3,
+      2,
+      2
+    ],
+    "trainable_params": 20183893,
+    "total_params": 20183893,
+    "trainable_ratio": 1.0,
+    "probe_grad_abs_mean": 0.03934482857584953,
+    "probe_update_abs_mean": 0.0002999991411343217,
+    "no_grad_param_count": 0,
+    "no_grad_param_examples": [],
+    "model_training_after_train_call": true,
+    "model_training_after_eval_call": false
+  },
+  "checks": {
+    "is_bchw": true,
+    "is_float_tensor": true,
+    "labels_are_long": true,
+    "labels_in_range": true,
+    "logits_are_batch_by_classes": true,
+    "weights_updated": true,
+    "probe_has_gradient": true,
+    "train_eval_flags_ok": true
+  }
+}
