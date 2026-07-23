@@ -37,8 +37,15 @@ from sklearn.metrics import accuracy_score, cohen_kappa_score, confusion_matrix,
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 COMMON_CONFIG_PATH = Path("configs/fixed_split_01234_train.yaml")
 MODEL_CONFIG_PATH = Path("configs/fixed_split_01234_models/fixed_efficientnet_v2_s.yaml")
-DATASET_ROOT = Path("datasets_01234")
-OUTPUT_ROOT = Path("temp/useOnce/best_epoch_parent_diagnostics_runs")
+
+# 408 版本数据集：裁剪出 408x408 后不再提前缩放成 224x224。
+DATASET_ROOT = Path("datasets_01234_408")
+
+# 关键：如果这里不改成 408，公共 YAML 里的 transform 仍会把图片 resize 回 224。
+# 如果想切回旧的 224 数据集，把 DATASET_ROOT 改回 datasets_01234，并把这里改成 224。
+INPUT_IMAGE_SIZE = 408
+
+OUTPUT_ROOT = Path("temp/useOnce/best_epoch_parent_diagnostics_408_runs")
 
 DEVICE_NAME = "auto"  # auto / cuda / cpu
 EPOCHS_OVERRIDE: Optional[int] = None  # 快速试脚本可改成 2；正式诊断保持 None
@@ -139,6 +146,10 @@ def build_config(run_dir: Path, device: torch.device) -> Tuple[str, TrainingConf
             cfg.setdefault(section, {}).update(copy.deepcopy(model_cfg[section]))
     cfg["data"]["root"] = str(resolve_project_path(DATASET_ROOT))
     cfg["data"]["class_to_idx"] = copy.deepcopy(cfg.pop("class_to_idx"))
+    for transform_key in ("train_transform", "eval_transform", "test_transform"):
+        transform_cfg = cfg["data"].get(transform_key)
+        if isinstance(transform_cfg, dict):
+            transform_cfg["image_size"] = int(INPUT_IMAGE_SIZE)
     cfg["train"]["device"] = device.type
     cfg["train"]["keep_pth_files"] = False
     if EPOCHS_OVERRIDE is not None:
@@ -691,6 +702,7 @@ def main() -> None:
         "common_config_path": COMMON_CONFIG_PATH.as_posix(),
         "model_config_path": MODEL_CONFIG_PATH.as_posix(),
         "dataset_root": str(resolve_project_path(DATASET_ROOT)),
+        "input_image_size": INPUT_IMAGE_SIZE,
         "class_names": class_names,
         "device": str(device),
         "epochs": epochs,

@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 
 datasets_01234/
+datasets_01234_408/
 datasets/
 datasets_split/
 datasets_split_patches/
