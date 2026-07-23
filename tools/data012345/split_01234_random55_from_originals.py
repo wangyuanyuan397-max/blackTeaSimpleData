@@ -1,4 +1,8 @@
-"""按原图级别划分 00/10/20/30/40，并随机裁剪 55 个 408x408 patch 后缩放到 224x224。"""
+"""按原图级别划分 00/10/20/30/40，并随机裁剪 55 个 408x408 patch。
+
+默认会把 408x408 patch 缩放到 224x224；如果把 ENABLE_RESIZE 改为 False，
+则直接保存 408x408 patch，不进行 resize。
+"""
 
 from __future__ import annotations
 
@@ -19,7 +23,7 @@ from PIL import Image, ImageOps
 SOURCE_ROOT = Path(r"E:\workspaces\python\BlackTeaSimpleData\datas_test_point")
 
 # 输出目录：会生成 train/val/test，每个 split 下再放 00/10/20/30/40 类别文件夹。
-OUTPUT_ROOT = Path(r"E:\workspaces\python\BlackTeaSimpleData\datasets_01234")
+OUTPUT_ROOT = Path(r"E:\workspaces\python\BlackTeaSimpleData\datasets_01234_408")
 
 # 只处理这 5 个时间点。ImageFolder 会按 00、10、20、30、40 排序，对应 0、1、2、3、4 类。
 TIME_CODES = ("00", "10", "20", "30", "40")
@@ -30,8 +34,11 @@ SPLIT_COUNTS = {"train": 15, "val": 4, "test": 5}
 # 每张原图随机裁剪 55 个 patch。
 CROPS_PER_SOURCE = 55
 
-# 先从原图随机裁 408x408，再缩放成 224x224 保存。
+# 先从原图随机裁 408x408；是否缩放由 ENABLE_RESIZE 控制。
 CROP_SIZE = 408
+
+# True：裁剪后缩放成 RESIZE_SIZE x RESIZE_SIZE；False：直接保存 408x408。
+ENABLE_RESIZE = False
 RESIZE_SIZE = 224
 
 # 固定随机种子，保证每次运行得到同一套原图划分和同一组随机裁剪坐标。
@@ -118,7 +125,9 @@ def crop_one_source(row: dict[str, str], crop_manifest_rows: list[dict[str, str]
         top = rng.randint(0, height - CROP_SIZE)
         right = left + CROP_SIZE
         bottom = top + CROP_SIZE
-        patch = image.crop((left, top, right, bottom)).resize((RESIZE_SIZE, RESIZE_SIZE), Image.Resampling.BICUBIC)
+        patch = image.crop((left, top, right, bottom))
+        if ENABLE_RESIZE:
+            patch = patch.resize((RESIZE_SIZE, RESIZE_SIZE), Image.Resampling.BICUBIC)
         save_name = f"{source_image_id}__random55_{crop_index:03d}.jpg"
         save_path = output_dir / save_name
         patch.save(save_path, quality=JPEG_QUALITY)
@@ -135,7 +144,9 @@ def crop_one_source(row: dict[str, str], crop_manifest_rows: list[dict[str, str]
                 "right": right,
                 "bottom": bottom,
                 "crop_size": CROP_SIZE,
-                "resize_size": RESIZE_SIZE,
+                "resize_enabled": ENABLE_RESIZE,
+                "resize_size": RESIZE_SIZE if ENABLE_RESIZE else "",
+                "output_size": RESIZE_SIZE if ENABLE_RESIZE else CROP_SIZE,
                 "target_relpath": save_path.relative_to(OUTPUT_ROOT).as_posix(),
             }
         )
@@ -169,7 +180,9 @@ def main() -> None:
         "source_split_counts_per_time": SPLIT_COUNTS,
         "crops_per_source": CROPS_PER_SOURCE,
         "crop_size": CROP_SIZE,
-        "resize_size": RESIZE_SIZE,
+        "resize_enabled": ENABLE_RESIZE,
+        "resize_size": RESIZE_SIZE if ENABLE_RESIZE else None,
+        "output_size": RESIZE_SIZE if ENABLE_RESIZE else CROP_SIZE,
         "total_source_count": len(source_split_rows),
         "total_crop_count": len(crop_manifest_rows),
         "crop_counts": {split: dict(time_counts) for split, time_counts in counts.items()},
@@ -179,6 +192,8 @@ def main() -> None:
 
     print("划分和随机裁剪完成。")
     print(f"输出目录：{OUTPUT_ROOT}")
+    print(f"是否 resize：{ENABLE_RESIZE}")
+    print(f"输出图片尺寸：{RESIZE_SIZE if ENABLE_RESIZE else CROP_SIZE}x{RESIZE_SIZE if ENABLE_RESIZE else CROP_SIZE}")
     print(f"原图数量：{len(source_split_rows)}")
     print(f"随机裁剪图数量：{len(crop_manifest_rows)}")
     for split_name in ("train", "val", "test"):
