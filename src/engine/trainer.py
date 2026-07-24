@@ -145,6 +145,10 @@ class Trainer:
         
         # 构建调度(
         self.scheduler = self.builder.build_scheduler(self.optimizer)
+
+        # 通用渐进式解冻：optimizer/scheduler 先按完整参数集创建，随后冻结当前阶段不训练的层。
+        # 这样第 6 个 epoch 解冻时不会重建 optimizer 或重置 scheduler，便于做 same-lr 控制变量实验。
+        self._init_progressive_unfreeze()
         
         # 7. 创建评估(
         tta_mode = getattr(self.config.train, "tta_mode", "mean") if hasattr(self.config, "train") else "mean"
@@ -222,6 +226,7 @@ class Trainer:
             for epoch in range(self.config.train.epochs):
                 self.current_epoch = epoch
                 self._maybe_transition_staged_training(epoch)
+                self._maybe_apply_progressive_unfreeze(epoch)
                 
                 # 训练一个 epoch
                 # 先训练一个 epoch，再在验证集上评估。
@@ -320,6 +325,122 @@ class Trainer:
     def _get_staged_training_config(self) -> Optional[Dict[str, Any]]:
         cfg = self._get_train_option("staged_training", None)
         return cfg if isinstance(cfg, dict) else None
+
+    def _get_progressive_unfreeze_config(self) -> Optional[Dict[str, Any]]:
+        """读取通用渐进式解冻配置。"""
+        cfg = self._get_train_option("progressive_unfreeze", None)
+        return cfg if isinstance(cfg, dict) else None
+
+    def _get_backbone_stage_modules(self) -> list[nn.Module]:
+        """返回支持 stage 级解冻的 backbone.stages。"""
+        backbone = getattr(self.model, "backbone", None)
+        stages = getattr(backbone, "stages", None)
+        if stages is None:
+            raise ValueError(
+                "progressive_unfreeze 要求 backbone 暴露 stages；"
+                "请使用 efficientnet_v2_s_stage_probe 这类 stage-aware backbone。"
+            )
+        return list(stages)
+
+    @staticmethod
+    def _set_module_trainable(module: Optional[nn.Module], trainable: bool) -> None:
+        """统一设置一个模块的 requires_grad。"""
+        if module is None:
+            return
+        for parameter in module.parameters():
+            parameter.requires_grad_(trainable)
+
+    def _set_progressive_trainable_stages(self, trainable_stages: set[int]) -> None:
+        """冻结 backbone 后，只打开指定 stage；分类头始终保持可训练。"""
+        backbone = getattr(self.model, "backbone", None)
+        self._set_module_trainable(backbone, False)
+
+        stage_modules = self._get_backbone_stage_modules()
+        for stage_index, stage_module in enumerate(stage_modules, start=1):
+            self._set_module_trainable(stage_module, stage_index in trainable_stages)
+
+        self._set_module_trainable(getattr(self.model, "head", None), True)
+        self._set_module_trainable(getattr(self.model, "aux_head", None), True)
+        self._set_module_trainable(getattr(self.model, "neck", None), True)
+
+    def _set_progressive_frozen_stages_eval(self) -> None:
+        """训练模式下让冻结 stage 保持 eval，避免 BatchNorm 统计量暗中更新。"""
+        if not getattr(self, "progressive_unfreeze_active", False):
+            return
+        if not bool(getattr(self, "progressive_freeze_bn", True)):
+            return
+        trainable_stages = getattr(self, "progressive_current_trainable_stages", set())
+        for stage_index, stage_module in enumerate(self._get_backbone_stage_modules(), start=1):
+            if stage_index not in trainable_stages:
+                stage_module.eval()
+
+    def _progressive_trainable_parameter_count(self) -> int:
+        """统计当前 requires_grad=True 的参数量，用于日志确认阶段切换是否生效。"""
+        return int(sum(parameter.numel() for parameter in self.model.parameters() if parameter.requires_grad))
+
+    def _init_progressive_unfreeze(self) -> None:
+        """初始化通用渐进式解冻；不重建 optimizer/scheduler，不改变学习率配置。"""
+        self.progressive_unfreeze_cfg = self._get_progressive_unfreeze_config()
+        self.progressive_unfreeze_active = False
+        self.progressive_unfreeze_phase = None
+        self.progressive_current_trainable_stages: set[int] = set()
+
+        cfg = self.progressive_unfreeze_cfg
+        if not isinstance(cfg, dict) or not bool(cfg.get("enabled", False)):
+            return
+
+        if getattr(self, "staged_training_active", False):
+            raise ValueError("staged_training 和 progressive_unfreeze 不能同时启用。")
+
+        freeze_epochs = int(cfg.get("freeze_backbone_epochs", 0) or 0)
+        if freeze_epochs <= 0:
+            raise ValueError("progressive_unfreeze.freeze_backbone_epochs 必须大于 0。")
+
+        unfreeze_stages = {int(stage) for stage in cfg.get("unfreeze_stages", [])}
+        max_stage = len(self._get_backbone_stage_modules())
+        invalid_stages = sorted(stage for stage in unfreeze_stages if stage < 1 or stage > max_stage)
+        if invalid_stages:
+            raise ValueError(
+                f"progressive_unfreeze.unfreeze_stages 超出有效范围 1～{max_stage}: {invalid_stages}"
+            )
+
+        self.progressive_unfreeze_active = True
+        self.progressive_freeze_backbone_epochs = freeze_epochs
+        self.progressive_unfreeze_stages = unfreeze_stages
+        self.progressive_freeze_bn = bool(cfg.get("freeze_bn", True))
+        self._apply_progressive_unfreeze_phase(epoch=0, force=True)
+
+    def _apply_progressive_unfreeze_phase(self, epoch: int, force: bool = False) -> None:
+        """根据当前 epoch 应用 head-only 或 partial-unfreeze 阶段。"""
+        if not getattr(self, "progressive_unfreeze_active", False):
+            return
+
+        if epoch < int(self.progressive_freeze_backbone_epochs):
+            phase = "head_only"
+            trainable_stages: set[int] = set()
+        else:
+            phase = "partial_unfreeze"
+            trainable_stages = set(self.progressive_unfreeze_stages)
+
+        if not force and phase == self.progressive_unfreeze_phase:
+            self._set_progressive_frozen_stages_eval()
+            return
+
+        self._set_progressive_trainable_stages(trainable_stages)
+        self.progressive_current_trainable_stages = set(trainable_stages)
+        self.progressive_unfreeze_phase = phase
+        self._set_progressive_frozen_stages_eval()
+        self.logger.info(
+            "progressive_unfreeze_phase_applied",
+            epoch=epoch + 1,
+            phase=phase,
+            trainable_stages=sorted(trainable_stages),
+            trainable_parameters=self._progressive_trainable_parameter_count(),
+        )
+
+    def _maybe_apply_progressive_unfreeze(self, epoch: int) -> None:
+        """每个 epoch 开始前检查是否需要从冻结 backbone 切换到部分解冻。"""
+        self._apply_progressive_unfreeze_phase(epoch=epoch, force=False)
 
     def _iter_scheduler_hooks(self):
         for hook in getattr(self.hook_manager, "hooks", []):
@@ -548,6 +669,7 @@ class Trainer:
 
         # 训练阶段使用 train() 模式，启用 dropout / BN 的训练行为。
         self.model.train()
+        self._set_progressive_frozen_stages_eval()
         self.hook_manager.trigger("on_epoch_start", trainer=self, epoch=epoch)
         
         total_loss = 0.0

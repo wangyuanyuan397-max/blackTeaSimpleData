@@ -1,0 +1,23 @@
+# 前 5 个 epoch 冻结 EfficientNetV2-S backbone，只训练分类头；第 6 个 epoch 起解冻 Stage5 + Stage6 + 分类头。
+# 学习率、optimizer、scheduler 全部继承 configs/fixed_split_01234_train.yaml，不做任何覆盖。
+name: freeze5_unfreeze_s56_same_lr
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: efficientnet_v2_s_stage_probe
+    pretrained: true
+    output_stage: 6
+    # 注意：这里先声明 1～6 全部可训练，是为了让 optimizer 初始包含全部 stage 参数。
+    # 真正的冻结/解冻由 train.progressive_unfreeze 在训练开始前和第 6 个 epoch 自动控制。
+    trainable_stages: [1, 2, 3, 4, 5, 6]
+  head:
+    type: linear
+    drop_rate: 0.0
+
+train:
+  progressive_unfreeze:
+    enabled: true
+    freeze_backbone_epochs: 5
+    unfreeze_stages: [5, 6]
+    freeze_bn: true

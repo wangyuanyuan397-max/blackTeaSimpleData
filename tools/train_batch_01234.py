@@ -69,6 +69,9 @@ train_batch_base.CONFIG_LIST = (
     Path('configs/fixed_split_01234_models/attention_eca_p56.yaml'),
     Path('configs/fixed_split_01234_models/attention_eca_p6.yaml'),
     Path('configs/fixed_split_01234_models/attention_eca_pall.yaml'),
+    # Same-lr progressive unfreeze：只改变可训练 stage，不改变 lr/optimizer/scheduler。
+    Path('configs/fixed_split_01234_models/freeze5_unfreeze_s6_same_lr.yaml'),
+    Path('configs/fixed_split_01234_models/freeze5_unfreeze_s56_same_lr.yaml'),
 )
 
 # PyCharm 右键运行默认设置；也可以继续用命令行参数覆盖。
