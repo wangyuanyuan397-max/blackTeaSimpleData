@@ -28,7 +28,7 @@ from PIL import Image, ImageOps
 SOURCE_ROOT = Path(r"E:\workspaces\python\BlackTeaSimpleData\datas_test_point")
 
 # 输出目录：会生成 train/val/test，每个 split 下再放 00/10/20/30/40 类别文件夹。
-OUTPUT_ROOT = Path(r"E:\workspaces\python\BlackTeaSimpleData\datasets_01234_grid30_224")
+OUTPUT_ROOT = Path(r"E:\workspaces\python\BlackTeaSimpleData\datasets_01234_grid30_408")
 
 # 只处理这 5 个时间点。ImageFolder 会按 00、10、20、30、40 排序，对应 0、1、2、3、4 类。
 TIME_CODES = ("00", "10", "20", "30", "40")
@@ -55,7 +55,7 @@ USED_HEIGHT = PATCH_SIZE * GRID_ROWS
 DISCARDED_BOTTOM_PIXELS = EXPECTED_HEIGHT - USED_HEIGHT
 
 # True：裁剪后缩放成 RESIZE_SIZE x RESIZE_SIZE；False：直接保存 408x408。
-ENABLE_RESIZE = True
+ENABLE_RESIZE = False
 RESIZE_SIZE = 224
 
 # 输出 jpg 质量。
