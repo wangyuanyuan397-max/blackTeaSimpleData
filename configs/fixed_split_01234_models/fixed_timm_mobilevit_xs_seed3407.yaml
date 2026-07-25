@@ -1,0 +1,15 @@
+# MobileViT-XS 5-class repeated-seed experiment for datasets_01234_grid30_408.
+# Seed = 3407. 公共训练配置由 tools/train_batch_01234.py 指向的 fixed_split_01234_grid30_408_train.yaml 提供。
+name: fixed_timm_mobilevit_xs_seed3407
+random_seed: 3407
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: timm
+    model_name: mobilevit_xs
+    pretrained: true
+    input_size: 408
+  head:
+    type: linear
+    drop_rate: 0.0

@@ -1,0 +1,14 @@
+# EfficientNet-B0 5-class repeated-seed experiment for datasets_01234_grid30_408.
+# Seed = 2026. 公共训练配置由 tools/train_batch_01234.py 指向的 fixed_split_01234_grid30_408_train.yaml 提供。
+name: fixed_efficientnet_b0_seed2026
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: torchvision
+    model_name: efficientnet_b0
+    pretrained: true
+  head:
+    type: linear
+    drop_rate: 0.0
