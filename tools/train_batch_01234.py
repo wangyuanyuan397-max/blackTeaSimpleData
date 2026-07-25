@@ -20,62 +20,12 @@ train_batch_base = importlib.util.module_from_spec(spec)
 sys.modules['train_batch_base'] = train_batch_base
 spec.loader.exec_module(train_batch_base)
 
-# 01234 五分类专用公共配置。
-train_batch_base.COMMON_CONFIG = Path('configs/fixed_split_01234_train.yaml')
+# 01234 五分类 408×408 patch 专用公共配置。
+train_batch_base.COMMON_CONFIG = Path('configs/fixed_split_01234_408_train.yaml')
 
-# 本次要跑的全部模型：先 fixed_split_patches_models 下 13 个，再 tryPractice/Attention 下 31 个。
+# 本次只跑 EfficientNetV2-S baseline，用 datasets_01234_408 做 408×408 输入实验。
 train_batch_base.CONFIG_LIST = (
-    Path('configs/fixed_split_01234_models/fixed_convnext_tiny.yaml'),
     Path('configs/fixed_split_01234_models/fixed_efficientnet_v2_s.yaml'),
-    Path('configs/fixed_split_01234_models/fixed_efficientnet_v2_s_ablation_conv_refine.yaml'),
-    Path('configs/fixed_split_01234_models/fixed_efficientnet_v2_s_ablation_linear.yaml'),
-    Path('configs/fixed_split_01234_models/fixed_efficientnet_v2_s_ablation_mlp.yaml'),
-    Path('configs/fixed_split_01234_models/fixed_efficientnet_v2_s_ablation_se_refine.yaml'),
-    Path('configs/fixed_split_01234_models/fixed_efficientnet_v2_s_gated_refinement.yaml'),
-    Path('configs/fixed_split_01234_models/fixed_efficientnet_v2_s_multistage_gated_fusion.yaml'),
-    Path('configs/fixed_split_01234_models/fixed_mambaout_tiny.yaml'),
-    Path('configs/fixed_split_01234_models/fixed_mobilenet_v3_large.yaml'),
-    Path('configs/fixed_split_01234_models/fixed_mobilenet_v3_small.yaml'),
-    Path('configs/fixed_split_01234_models/fixed_mobilenet_v3_small_seed1.yaml'),
-    Path('configs/fixed_split_01234_models/fixed_mobilenet_v3_small_seed2.yaml'),
-    Path('configs/fixed_split_01234_models/fixed_mobilenet_v3_small_seed3.yaml'),
-    Path('configs/fixed_split_01234_models/fixed_resnet50.yaml'),
-    Path('configs/fixed_split_01234_models/fixed_safnet_imagenet.yaml'),
-    Path('configs/fixed_split_01234_models/fixed_safnet_scratch.yaml'),
-    Path('configs/fixed_split_01234_models/attention_baseline.yaml'),
-    Path('configs/fixed_split_01234_models/attention_ca_p1.yaml'),
-    Path('configs/fixed_split_01234_models/attention_ca_p2.yaml'),
-    Path('configs/fixed_split_01234_models/attention_ca_p3.yaml'),
-    Path('configs/fixed_split_01234_models/attention_ca_p4.yaml'),
-    Path('configs/fixed_split_01234_models/attention_ca_p456.yaml'),
-    Path('configs/fixed_split_01234_models/attention_ca_p46.yaml'),
-    Path('configs/fixed_split_01234_models/attention_ca_p5.yaml'),
-    Path('configs/fixed_split_01234_models/attention_ca_p56.yaml'),
-    Path('configs/fixed_split_01234_models/attention_ca_p6.yaml'),
-    Path('configs/fixed_split_01234_models/attention_ca_pall.yaml'),
-    Path('configs/fixed_split_01234_models/attention_cbam_p1.yaml'),
-    Path('configs/fixed_split_01234_models/attention_cbam_p2.yaml'),
-    Path('configs/fixed_split_01234_models/attention_cbam_p3.yaml'),
-    Path('configs/fixed_split_01234_models/attention_cbam_p4.yaml'),
-    Path('configs/fixed_split_01234_models/attention_cbam_p456.yaml'),
-    Path('configs/fixed_split_01234_models/attention_cbam_p46.yaml'),
-    Path('configs/fixed_split_01234_models/attention_cbam_p5.yaml'),
-    Path('configs/fixed_split_01234_models/attention_cbam_p56.yaml'),
-    Path('configs/fixed_split_01234_models/attention_cbam_p6.yaml'),
-    Path('configs/fixed_split_01234_models/attention_cbam_pall.yaml'),
-    Path('configs/fixed_split_01234_models/attention_eca_p1.yaml'),
-    Path('configs/fixed_split_01234_models/attention_eca_p2.yaml'),
-    Path('configs/fixed_split_01234_models/attention_eca_p3.yaml'),
-    Path('configs/fixed_split_01234_models/attention_eca_p4.yaml'),
-    Path('configs/fixed_split_01234_models/attention_eca_p456.yaml'),
-    Path('configs/fixed_split_01234_models/attention_eca_p46.yaml'),
-    Path('configs/fixed_split_01234_models/attention_eca_p5.yaml'),
-    Path('configs/fixed_split_01234_models/attention_eca_p56.yaml'),
-    Path('configs/fixed_split_01234_models/attention_eca_p6.yaml'),
-    Path('configs/fixed_split_01234_models/attention_eca_pall.yaml'),
-    # Same-lr progressive unfreeze：只改变可训练 stage，不改变 lr/optimizer/scheduler。
-    Path('configs/fixed_split_01234_models/freeze5_unfreeze_s6_same_lr.yaml'),
-    Path('configs/fixed_split_01234_models/freeze5_unfreeze_s56_same_lr.yaml'),
 )
 
 # PyCharm 右键运行默认设置；也可以继续用命令行参数覆盖。
