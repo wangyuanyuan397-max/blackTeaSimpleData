@@ -26,6 +26,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import yaml
 from PIL import Image, ImageDraw
 from sklearn.metrics import accuracy_score, cohen_kappa_score, confusion_matrix, f1_score, mean_absolute_error
@@ -59,6 +60,8 @@ DIAGNOSTIC_SPLIT = "val"  # val / test / train
 PREDICTION_STATE_KEY = "best_val_acc"
 TOP_ERROR_COUNT = 100
 SAVE_BEST_STATE_PTH = False
+SAVE_EPOCH_TOP_LOSS_RECORDS = True
+TOP_LOSS_RECORDS_PER_EPOCH = 100
 
 BEST_TRACKERS = {
     "best_val_acc": {"metric": "accuracy", "mode": "max"},
@@ -253,6 +256,9 @@ def evaluate(
     records: List[Dict[str, Any]] = []
     total_loss = 0.0
     total_samples = 0
+    max_sample_loss = 0.0
+    max_abs_logit = 0.0
+    abs_logit_values: List[float] = []
     with torch.no_grad():
         for batch_data in loader:
             images, labels, paths = unpack_batch(batch_data)
@@ -260,7 +266,16 @@ def evaluate(
             labels = labels.to(device, non_blocking=True).long()
             outputs = model(images)
             logits = extract_logits(outputs)
+            if not torch.isfinite(logits).all():
+                raise RuntimeError("验证阶段出现 NaN 或 Inf logits。")
             loss = compute_loss(loss_fn, outputs, logits, labels)
+            per_sample_loss = F.cross_entropy(logits, labels, reduction="none")
+            if not torch.isfinite(per_sample_loss).all():
+                raise RuntimeError("验证阶段出现 NaN 或 Inf per-sample loss。")
+            abs_logits = logits.detach().abs()
+            max_sample_loss = max(max_sample_loss, float(per_sample_loss.max().item()))
+            max_abs_logit = max(max_abs_logit, float(abs_logits.max().item()))
+            abs_logit_values.extend(float(value) for value in abs_logits.flatten().cpu().tolist())
             probs = torch.softmax(logits, dim=1)
             confs, preds = probs.max(dim=1)
             batch_size = int(labels.size(0))
@@ -271,11 +286,21 @@ def evaluate(
             cpu_preds = preds.detach().cpu().tolist()
             cpu_confs = confs.detach().cpu().tolist()
             cpu_probs = probs.detach().cpu().tolist()
+            cpu_losses = per_sample_loss.detach().cpu().tolist()
+            cpu_logits = logits.detach().cpu().tolist()
             if paths is None:
                 paths = [""] * batch_size
             y_true.extend(int(x) for x in cpu_labels)
             y_pred.extend(int(x) for x in cpu_preds)
-            for path, true_label, pred_label, confidence, prob_vector in zip(paths, cpu_labels, cpu_preds, cpu_confs, cpu_probs):
+            for path, true_label, pred_label, confidence, prob_vector, sample_loss, logit_vector in zip(
+                paths,
+                cpu_labels,
+                cpu_preds,
+                cpu_confs,
+                cpu_probs,
+                cpu_losses,
+                cpu_logits,
+            ):
                 row = {
                     "path": str(path),
                     "true_label": int(true_label),
@@ -283,11 +308,19 @@ def evaluate(
                     "pred_label": int(pred_label),
                     "pred_class": class_names[int(pred_label)],
                     "confidence": float(confidence),
+                    "sample_loss": float(sample_loss),
+                    "sample_max_abs_logit": float(max(abs(value) for value in logit_vector)),
+                    "true_logit": float(logit_vector[int(true_label)]),
+                    "pred_logit": float(logit_vector[int(pred_label)]),
                 }
                 for index, class_name in enumerate(class_names):
                     row[f"prob_{class_name}"] = float(prob_vector[index])
+                    row[f"logit_{class_name}"] = float(logit_vector[index])
                 records.append(row)
     metrics = compute_metrics(y_true, y_pred, total_loss / max(1, total_samples), len(class_names))
+    metrics["max_sample_loss"] = float(max_sample_loss)
+    metrics["max_abs_logit"] = float(max_abs_logit)
+    metrics["p99_abs_logit"] = float(np.percentile(abs_logit_values, 99)) if abs_logit_values else 0.0
     return metrics, records
 
 
@@ -317,7 +350,20 @@ def update_best(best: Dict[str, Dict[str, Any]], epoch: int, val_metrics: Dict[s
 
 
 def save_history(run_dir: Path, history: Sequence[Dict[str, Any]]) -> None:
-    fields = ["epoch", "train_loss", "train_acc", "val_loss", "val_acc", "val_macro_f1", "val_mae", "val_qwk", "seconds"]
+    fields = [
+        "epoch",
+        "train_loss",
+        "train_acc",
+        "val_loss",
+        "val_acc",
+        "val_macro_f1",
+        "val_mae",
+        "val_qwk",
+        "val_max_sample_loss",
+        "val_max_abs_logit",
+        "val_p99_abs_logit",
+        "seconds",
+    ]
     write_rows(run_dir / "epoch_history.csv", history, fields)
     epochs = [row["epoch"] for row in history]
     fig, axes = plt.subplots(2, 2, figsize=(10, 8), dpi=150)
@@ -339,6 +385,20 @@ def save_history(run_dir: Path, history: Sequence[Dict[str, Any]]) -> None:
     fig.tight_layout()
     fig.savefig(run_dir / "epoch_history_curves.png")
     plt.close(fig)
+
+
+def save_epoch_top_loss_records(run_dir: Path, epoch: int, records: Sequence[Dict[str, Any]]) -> None:
+    """保存当前 epoch 验证集中单样本 CE loss 最大的样本，定位 loss 爆炸来源。"""
+    if not SAVE_EPOCH_TOP_LOSS_RECORDS:
+        return
+    top_records = sorted(records, key=lambda row: float(row.get("sample_loss", 0.0)), reverse=True)[
+        :TOP_LOSS_RECORDS_PER_EPOCH
+    ]
+    if not top_records:
+        return
+    output_dir = run_dir / "epoch_top_loss_records"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    write_rows(output_dir / f"epoch_{epoch:03d}_top_loss.csv", top_records)
 
 
 def save_confusion_csv(path: Path, matrix: np.ndarray, class_names: Sequence[str]) -> None:
@@ -659,7 +719,8 @@ def main() -> None:
     for epoch in range(1, epochs + 1):
         start = time.time()
         train_metrics = train_one_epoch(model, train_loader, loss_fn, optimizer, device, accumulation_steps)
-        val_metrics, _ = evaluate(model, val_loader, loss_fn, device, class_names)
+        val_metrics, val_records = evaluate(model, val_loader, loss_fn, device, class_names)
+        save_epoch_top_loss_records(run_dir, epoch, val_records)
         if scheduler is not None:
             try:
                 scheduler.step()
@@ -675,6 +736,9 @@ def main() -> None:
             "val_macro_f1": val_metrics["macro_f1"],
             "val_mae": val_metrics["mae"],
             "val_qwk": val_metrics["qwk"],
+            "val_max_sample_loss": val_metrics["max_sample_loss"],
+            "val_max_abs_logit": val_metrics["max_abs_logit"],
+            "val_p99_abs_logit": val_metrics["p99_abs_logit"],
             "seconds": seconds,
         }
         history.append(row)
@@ -684,6 +748,9 @@ def main() -> None:
             f"train_loss={row['train_loss']:.5f} train_acc={row['train_acc']:.4f} | "
             f"val_loss={row['val_loss']:.5f} val_acc={row['val_acc']:.4f} "
             f"val_f1={row['val_macro_f1']:.4f} val_qwk={row['val_qwk']:.4f} | "
+            f"max_sample_loss={row['val_max_sample_loss']:.4f} "
+            f"max_abs_logit={row['val_max_abs_logit']:.4f} "
+            f"p99_abs_logit={row['val_p99_abs_logit']:.4f} | "
             f"time={seconds:.1f}s"
         )
 

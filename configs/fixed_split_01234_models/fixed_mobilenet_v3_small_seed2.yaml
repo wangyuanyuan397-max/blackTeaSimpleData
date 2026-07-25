@@ -1,0 +1,13 @@
+# MobileNetV3-Small seed-2 reproduction run.
+name: fixed_mobilenet_v3_small_seed2
+random_seed: 2
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: torchvision
+    model_name: mobilenet_v3_small
+    pretrained: true
+  head:
+    type: linear
+    drop_rate: 0.0
