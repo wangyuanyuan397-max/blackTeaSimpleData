@@ -23,12 +23,44 @@ spec.loader.exec_module(train_batch_base)
 # 01234 五分类固定网格 30 patch、408×408 输入专用公共配置。
 train_batch_base.COMMON_CONFIG = Path('configs/fixed_split_01234_grid30_408_train.yaml')
 
-# 本次批跑 4 个轻量/中等规模 baseline，用 datasets_01234_grid30_408 做固定 30 patch 实验。
+# 本次先跑 4 个 torchvision baseline，再追加本地 timm 已确认支持的轻量模型。
 train_batch_base.CONFIG_LIST = (
     Path('configs/fixed_split_01234_models/fixed_mobilenet_v3_small.yaml'),
     Path('configs/fixed_split_01234_models/fixed_mobilenet_v3_large.yaml'),
     Path('configs/fixed_split_01234_models/fixed_efficientnet_b0.yaml'),
     Path('configs/fixed_split_01234_models/fixed_efficientnet_v2_s.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_mobilenetv1_100.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_mobilenetv2_100.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_mnasnet_100.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_mobilenetv3_small_100.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_mobilenetv3_large_100.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_efficientnet_b0.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_efficientnet_b1.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_mixnet_s.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_mixnet_m.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_mixnet_l.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_ghostnet_100.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_ghostnetv2_100.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_tf_efficientnetv2_s.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_mobilevit_xxs.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_mobilevit_xs.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_mobilevit_s.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_edgenext_xx_small.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_edgenext_small.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_efficientformer_l1.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_efficientformerv2_s0.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_mobileone_s0.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_mobileone_s1.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_mobileone_s2.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_mobileone_s3.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_mobileone_s4.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_fasternet_t0.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_fasternet_t1.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_fasternet_t2.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_repvit_m0_9.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_repvit_m1_0.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_repvit_m1_1.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_timm_mobilenetv4_conv_small.yaml'),
 )
 
 # PyCharm 右键运行默认设置；也可以继续用命令行参数覆盖。

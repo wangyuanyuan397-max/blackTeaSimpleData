@@ -1,0 +1,14 @@
+# timm 5-class baseline for datasets_01234_grid30_408.
+# 公共训练配置由 tools/train_batch_01234.py 指向的 fixed_split_01234_grid30_408_train.yaml 提供。
+name: fixed_timm_fasternet_t1
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: timm
+    model_name: fasternet_t1
+    pretrained: true
+    input_size: 408
+  head:
+    type: linear
+    drop_rate: 0.0
