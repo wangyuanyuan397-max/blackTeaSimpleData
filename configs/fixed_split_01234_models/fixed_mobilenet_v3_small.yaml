@@ -1,0 +1,13 @@
+# MobileNetV3-Small 5-class baseline for datasets_01234.
+# 使用 torchvision ImageNet 预训练权重，训练配置继承 configs/fixed_split_01234_train.yaml。
+name: fixed_mobilenet_v3_small
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: torchvision
+    model_name: mobilenet_v3_small
+    pretrained: true
+  head:
+    type: linear
+    drop_rate: 0.0

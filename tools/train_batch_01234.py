@@ -35,6 +35,7 @@ train_batch_base.CONFIG_LIST = (
     Path('configs/fixed_split_01234_models/fixed_efficientnet_v2_s_multistage_gated_fusion.yaml'),
     Path('configs/fixed_split_01234_models/fixed_mambaout_tiny.yaml'),
     Path('configs/fixed_split_01234_models/fixed_mobilenet_v3_large.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_mobilenet_v3_small.yaml'),
     Path('configs/fixed_split_01234_models/fixed_resnet50.yaml'),
     Path('configs/fixed_split_01234_models/fixed_safnet_imagenet.yaml'),
     Path('configs/fixed_split_01234_models/fixed_safnet_scratch.yaml'),
