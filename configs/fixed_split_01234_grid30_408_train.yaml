@@ -1,0 +1,69 @@
+# 01234 时间点五分类固定网格 30 patch 数据集的公共训练配置。
+# 这个配置专门服务于 datasets_01234_grid30_408：
+# 每张原图按固定网格裁出 30 个 408×408 patch，训练时保持 408×408 输入，不再缩放到 224×224。
+experiment_name: fixed_split_01234_grid30_408_ce
+
+dataset_root: datasets_01234_grid30_408
+runs_root: runs_01234_grid30_408
+
+# 统一随机种子，方便和 224、random55、CLAHE、BaSiC 等实验做可复现实验对比。
+random_seed: 2026
+
+# 目录名是时间点字符串，必须加引号，避免 YAML 把 00 解析成数字。
+class_to_idx:
+  "00": 0
+  "10": 1
+  "20": 2
+  "30": 3
+  "40": 4
+
+# datasets_01234_grid30_408 已经是 408×408 patch；
+# 这里显式设置 image_size=408，让 transforms 按 408 输入构建。
+data:
+  type: image_folder
+  image_size: 408
+  train_transform:
+    type: patch_train_224
+    image_size: 408
+  eval_transform:
+    type: patch_eval_224
+    image_size: 408
+  test_transform:
+    type: patch_eval_224
+    image_size: 408
+
+# 训练超参数先保持和当前 01234 系列一致，方便只比较数据处理方式的影响。
+# 如果 408 输入在服务器上显存不足，可以先把 batch_size / val_batch_size / test_batch_size 减半。
+train:
+  epochs: 150
+  batch_size: 32
+  val_batch_size: 64
+  test_batch_size: 64
+  accumulation_steps: 1
+  num_workers: 4
+  weighted_sampler: false
+  patience: 30
+  selection_metric: val_acc
+  selection_mode: max
+  selection_min_delta: 0.0
+  enable_error_analysis: false
+  error_analysis_save_images: false
+  tta_mode: mean
+  tta_topk: 0
+  tta_compare: false
+  tta_compare_modes: []
+  keep_pth_files: false
+
+optimizer:
+  type: adamw
+  lr: 0.0001
+  weight_decay: 0.0005
+
+scheduler:
+  type: cosine
+  warmup_epochs: 2
+  min_lr: 0.000001
+
+loss:
+  type: cross_entropy
+  label_smoothing: 0.0

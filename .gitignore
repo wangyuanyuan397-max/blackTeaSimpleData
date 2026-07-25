@@ -5,6 +5,7 @@ __pycache__/
 datasets_01234/
 datasets_01234_original_split/
 datasets_01234_408/
+datasets_01234_grid30_408/
 datasets/
 datasets_split/
 datasets_split_patches/

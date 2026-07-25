@@ -20,10 +20,10 @@ train_batch_base = importlib.util.module_from_spec(spec)
 sys.modules['train_batch_base'] = train_batch_base
 spec.loader.exec_module(train_batch_base)
 
-# 01234 五分类 408×408 patch 专用公共配置。
-train_batch_base.COMMON_CONFIG = Path('configs/fixed_split_01234_408_train.yaml')
+# 01234 五分类固定网格 30 patch、408×408 输入专用公共配置。
+train_batch_base.COMMON_CONFIG = Path('configs/fixed_split_01234_grid30_408_train.yaml')
 
-# 本次只跑 EfficientNetV2-S baseline，用 datasets_01234_408 做 408×408 输入实验。
+# 本次只跑 EfficientNetV2-S baseline，用 datasets_01234_grid30_408 做固定 30 patch 实验。
 train_batch_base.CONFIG_LIST = (
     Path('configs/fixed_split_01234_models/fixed_efficientnet_v2_s.yaml'),
 )
