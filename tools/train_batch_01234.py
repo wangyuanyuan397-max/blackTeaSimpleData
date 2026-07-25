@@ -23,8 +23,11 @@ spec.loader.exec_module(train_batch_base)
 # 01234 五分类固定网格 30 patch、408×408 输入专用公共配置。
 train_batch_base.COMMON_CONFIG = Path('configs/fixed_split_01234_grid30_408_train.yaml')
 
-# 本次只跑 EfficientNetV2-S baseline，用 datasets_01234_grid30_408 做固定 30 patch 实验。
+# 本次批跑 4 个轻量/中等规模 baseline，用 datasets_01234_grid30_408 做固定 30 patch 实验。
 train_batch_base.CONFIG_LIST = (
+    Path('configs/fixed_split_01234_models/fixed_mobilenet_v3_small.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_mobilenet_v3_large.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_efficientnet_b0.yaml'),
     Path('configs/fixed_split_01234_models/fixed_efficientnet_v2_s.yaml'),
 )
 
