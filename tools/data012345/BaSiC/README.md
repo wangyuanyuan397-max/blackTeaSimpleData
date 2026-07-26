@@ -8,7 +8,7 @@
 2. 只使用 `train` split 的完整原图拟合 BaSiC 照明场。
 3. `val` 和 `test` 不参与 BaSiC fit，避免预处理阶段的数据泄露。
 4. 将 train 拟合出的同一个照明场应用到 `train/val/test`。
-5. 对每张矫正后的完整原图随机裁剪 55 个 `408x408` patch。
+5. 对每张矫正后的完整原图按固定 `6×5` 网格裁剪 30 个 `408x408` patch。
 6. 默认不 resize，直接输出 `408x408` patch。
 
 ## 只矫正明度
@@ -34,7 +34,7 @@ B' = gain(x, y) * B
 
 ```powershell
 cd E:\workspaces\python\BlackTeaSimpleData
-python tools\data012345\BaSiC\apply_basic_then_random55.py
+python tools\data012345\BaSiC\apply_basic_then_grid30.py
 ```
 
 如果缺少依赖：
@@ -66,10 +66,12 @@ datasets_01234_BaSic/
 每类 patch 数量应为：
 
 ```text
-train: 15 * 55 = 825
-val:   4  * 55 = 220
-test:  5  * 55 = 275
+train: 15 * 30 = 450
+val:   4  * 30 = 120
+test:  5  * 30 = 150
 ```
+
+固定裁剪方式与 `tools/data/crop_resize_30_patches.py` 一致：每张 `2448×2048` 原图按 `6×5` 网格裁成 30 个 `408×408` patch，横向完整使用 `2448` 像素，纵向使用 `2040` 像素，底部剩余 `8` 像素丢弃。
 
 ## 输出记录文件
 
@@ -77,7 +79,7 @@ test:  5  * 55 = 275
 
 - `basic_fit_manifest.csv`：参与 BaSiC fit 的 train 原图清单；
 - `basic_apply_manifest.csv`：被应用照明矫正的 train/val/test 原图清单；
-- `random_crop_manifest.csv`：每个 patch 的父图和裁剪坐标；
+- `grid30_crop_manifest.csv`：每个 patch 的父图和固定网格裁剪坐标；
 - `split_summary.json`：处理参数和数量汇总；
 - `flatfield_small.npy`：训练集拟合得到的单通道照明场；
 - `flatfield_preview.png`：照明场和 gain 预览；

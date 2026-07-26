@@ -1,0 +1,25 @@
+name: fixed_timm_mixnet_s_l2sp_alpha001
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: timm
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+  head:
+    type: linear
+    drop_rate: 0.0
+
+train:
+  l2_sp:
+    enabled: true
+    alpha: 0.01
+    normalize: mean
+    include_prefixes:
+      - backbone.
+    exclude_prefixes:
+      - head.
+      - aux_head.
+      - classifier.
+    trainable_only: false

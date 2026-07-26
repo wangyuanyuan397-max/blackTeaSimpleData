@@ -1,11 +1,11 @@
-"""对原图做 CLAHE-L 明度增强，然后随机裁剪 55 个 408x408 patch。
+"""对原图做 CLAHE-L 明度增强，然后按固定网格裁剪 30 个 408x408 patch。
 
 CLAHE 处理原则：
 1. 每张图独立处理，不拟合跨数据集模型；
 2. 只处理 Lab 颜色空间中的 L 明度通道；
 3. a/b 色度通道保持不变；
 4. 不做 RGB 三通道独立均衡、不做白平衡、不做颜色直方图均衡；
-5. 处理后的完整原图再随机裁剪 55 个 408x408 patch。
+5. 处理后的完整原图再按 6 列 x 5 行固定网格裁剪 30 个 408x408 patch。
 
 默认输出：datasets_01234_CLAHE_L_clip1p5_grid8。
 """
@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import csv
 import json
-import random
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -41,7 +40,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 # 输入：已经按原图级别划分好的 train/val/test，不裁剪、不缩放的原图数据集。
 SOURCE_ROOT = PROJECT_ROOT / "datasets_01234_original_split"
 
-# 输出：CLAHE-L 处理后再随机裁剪得到的数据集。
+# 输出：CLAHE-L 处理后再固定网格裁剪得到的数据集。
 OUTPUT_ROOT = PROJECT_ROOT / "datasets_01234_CLAHE_L_clip1p5_grid8"
 
 TIME_CODES = ("00", "10", "20", "30", "40")
@@ -52,15 +51,21 @@ EXPECTED_SPLIT_COUNTS = {"train": 15, "val": 4, "test": 5}
 CLAHE_CLIP_LIMIT = 1.5
 CLAHE_TILE_GRID_SIZE = (8, 8)
 
-# 每张 CLAHE 处理后的完整原图随机裁剪 55 个 patch。
-CROPS_PER_SOURCE = 55
-CROP_SIZE = 408
+# 固定网格裁剪参数：与 tools/data/crop_resize_30_patches.py 一致。
+EXPECTED_WIDTH = 2448
+EXPECTED_HEIGHT = 2048
+PATCH_SIZE = 408
+GRID_COLUMNS = 6
+GRID_ROWS = 5
+PATCHES_PER_SOURCE = GRID_COLUMNS * GRID_ROWS
+USED_WIDTH = PATCH_SIZE * GRID_COLUMNS
+USED_HEIGHT = PATCH_SIZE * GRID_ROWS
+DISCARDED_BOTTOM_PIXELS = EXPECTED_HEIGHT - USED_HEIGHT
 
 # 默认不 resize，直接保存 408x408；如果后续要 224 版本，可改成 True。
 ENABLE_RESIZE_AFTER_CROP = False
 RESIZE_SIZE = 224
 
-RANDOM_SEED = 2026
 JPEG_QUALITY = 95
 
 # 输出目录非空时默认停止，避免旧结果和新结果混在一起。
@@ -221,46 +226,74 @@ def save_patch(output_path: Path, patch_bgr: np.ndarray) -> None:
         raise IOError(f"patch 保存失败：{output_path}")
 
 
+def validate_image_size(image_path: Path, width: int, height: int) -> None:
+    """检查图像尺寸是否符合固定 30 patch 网格裁剪要求。"""
+    if (width, height) != (EXPECTED_WIDTH, EXPECTED_HEIGHT):
+        raise ValueError(
+            f"图像尺寸异常：{image_path}\n"
+            f"要求尺寸：{EXPECTED_WIDTH}x{EXPECTED_HEIGHT}，实际尺寸：{width}x{height}。\n"
+            "固定 30 patch 裁剪依赖 2448x2048 原图，否则裁剪坐标含义会改变。"
+        )
+
+    if USED_WIDTH > width or USED_HEIGHT > height:
+        raise ValueError(
+            f"裁剪网格超过图像边界：{image_path}，"
+            f"网格使用 {USED_WIDTH}x{USED_HEIGHT}，图像为 {width}x{height}。"
+        )
+
+
+def iter_grid_boxes() -> list[dict[str, int]]:
+    """按行优先顺序生成 30 个固定网格裁剪框。"""
+    boxes: list[dict[str, int]] = []
+    patch_index = 1
+    for row_index in range(GRID_ROWS):
+        top = row_index * PATCH_SIZE
+        for column_index in range(GRID_COLUMNS):
+            left = column_index * PATCH_SIZE
+            boxes.append(
+                {
+                    "patch_index": patch_index,
+                    "row_index": row_index + 1,
+                    "column_index": column_index + 1,
+                    "left": left,
+                    "top": top,
+                    "right": left + PATCH_SIZE,
+                    "bottom": top + PATCH_SIZE,
+                }
+            )
+            patch_index += 1
+    return boxes
+
+
 def crop_processed_source(
     row: dict[str, str],
     processed_bgr: np.ndarray,
     crop_manifest_rows: list[dict[str, Any]],
     counts: dict[tuple[str, str], int],
 ) -> None:
-    """对一张已经做过 CLAHE-L 的完整原图随机裁剪 55 个 patch。"""
+    """对一张已经做过 CLAHE-L 的完整原图按固定 6x5 网格裁剪 30 个 patch。"""
     split_name = row["split"]
     time_code = row["time_code"]
     source_image_id = row["source_image_id"]
     height, width = processed_bgr.shape[:2]
+    validate_image_size(Path(row["source_path"]), width, height)
 
-    if width < CROP_SIZE or height < CROP_SIZE:
-        raise ValueError(
-            f"图像尺寸小于裁剪尺寸：{row['source_path']}，"
-            f"图像={width}x{height}，crop={CROP_SIZE}x{CROP_SIZE}。"
-        )
-
-    # 每张父图使用独立但可复现的随机数，避免脚本运行顺序影响裁剪坐标。
-    rng = random.Random(f"{RANDOM_SEED}_{split_name}_{time_code}_{source_image_id}")
-    max_left = width - CROP_SIZE
-    max_top = height - CROP_SIZE
-
-    for crop_index in range(1, CROPS_PER_SOURCE + 1):
-        left = rng.randint(0, max_left)
-        top = rng.randint(0, max_top)
-        right = left + CROP_SIZE
-        bottom = top + CROP_SIZE
-
+    for box in iter_grid_boxes():
+        left = box["left"]
+        top = box["top"]
+        right = box["right"]
+        bottom = box["bottom"]
         patch_bgr = processed_bgr[top:bottom, left:right]
 
         if ENABLE_RESIZE_AFTER_CROP:
-            interpolation = cv2.INTER_AREA if RESIZE_SIZE < CROP_SIZE else cv2.INTER_CUBIC
+            interpolation = cv2.INTER_AREA if RESIZE_SIZE < PATCH_SIZE else cv2.INTER_CUBIC
             patch_bgr = cv2.resize(
                 patch_bgr,
                 (RESIZE_SIZE, RESIZE_SIZE),
                 interpolation=interpolation,
             )
 
-        save_name = f"{source_image_id}__random55_{crop_index:03d}.jpg"
+        save_name = f"{source_image_id}__grid30_{box['patch_index']:02d}.jpg"
         output_path = OUTPUT_ROOT / split_name / time_code / save_name
         save_patch(output_path, patch_bgr)
 
@@ -273,15 +306,20 @@ def crop_processed_source(
                 "source_relpath": row["source_relpath"],
                 "source_width": width,
                 "source_height": height,
-                "crop_index": crop_index,
+                "patch_index": box["patch_index"],
+                "row_index": box["row_index"],
+                "column_index": box["column_index"],
                 "left": left,
                 "top": top,
                 "right": right,
                 "bottom": bottom,
+                "crop_size": PATCH_SIZE,
                 "preprocess": "CLAHE_L_only",
                 "clip_limit": CLAHE_CLIP_LIMIT,
                 "tile_grid_size": f"{CLAHE_TILE_GRID_SIZE[0]}x{CLAHE_TILE_GRID_SIZE[1]}",
                 "resize_enabled": ENABLE_RESIZE_AFTER_CROP,
+                "resize_size": RESIZE_SIZE if ENABLE_RESIZE_AFTER_CROP else "",
+                "output_size": RESIZE_SIZE if ENABLE_RESIZE_AFTER_CROP else PATCH_SIZE,
                 "saved_width": int(patch_bgr.shape[1]),
                 "saved_height": int(patch_bgr.shape[0]),
                 "target_relpath": output_path.relative_to(OUTPUT_ROOT).as_posix(),
@@ -293,7 +331,7 @@ def crop_processed_source(
 def process_all_sources(
     source_rows: list[dict[str, str]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[tuple[str, str], int]]:
-    """依次处理全部原图：CLAHE-L 明度增强，然后随机裁剪 patch。"""
+    """依次处理全部原图：CLAHE-L 明度增强，然后固定网格裁剪 patch。"""
     apply_manifest_rows: list[dict[str, Any]] = []
     crop_manifest_rows: list[dict[str, Any]] = []
     counts: dict[tuple[str, str], int] = defaultdict(int)
@@ -325,8 +363,13 @@ def process_all_sources(
                 "unchanged_channels": "a,b",
                 "clip_limit": CLAHE_CLIP_LIMIT,
                 "tile_grid_size": f"{CLAHE_TILE_GRID_SIZE[0]}x{CLAHE_TILE_GRID_SIZE[1]}",
-                "crops_per_source": CROPS_PER_SOURCE,
-                "crop_size": CROP_SIZE,
+                "grid_columns": GRID_COLUMNS,
+                "grid_rows": GRID_ROWS,
+                "patches_per_source": PATCHES_PER_SOURCE,
+                "crop_size": PATCH_SIZE,
+                "used_width": USED_WIDTH,
+                "used_height": USED_HEIGHT,
+                "discarded_bottom_pixels": DISCARDED_BOTTOM_PIXELS,
                 "resize_enabled": ENABLE_RESIZE_AFTER_CROP,
                 "resize_size": RESIZE_SIZE if ENABLE_RESIZE_AFTER_CROP else "",
             }
@@ -334,7 +377,7 @@ def process_all_sources(
 
         print(
             f"[{image_index:03d}/{len(source_rows):03d}] "
-            f"{row['source_relpath']} -> {CROPS_PER_SOURCE} patches"
+            f"{row['source_relpath']} -> {PATCHES_PER_SOURCE} 个 grid patch"
         )
 
     return apply_manifest_rows, crop_manifest_rows, counts
@@ -368,7 +411,7 @@ def build_summary(
     }
 
     return {
-        "task": "Apply CLAHE to Lab L channel, then random-crop 55 patches per original image.",
+        "task": "Apply CLAHE to Lab L channel, then fixed-grid crop 30 patches per original image.",
         "source_root": str(SOURCE_ROOT.resolve()),
         "output_root": str(OUTPUT_ROOT.resolve()),
         "preprocess": {
@@ -381,11 +424,18 @@ def build_summary(
             "note": "CLAHE is applied independently to each image, so there is no train/val/test fitting step.",
         },
         "crop": {
-            "random_seed": RANDOM_SEED,
-            "crops_per_source": CROPS_PER_SOURCE,
-            "crop_size": CROP_SIZE,
+            "mode": "fixed_grid30",
+            "expected_source_size": [EXPECTED_WIDTH, EXPECTED_HEIGHT],
+            "grid_columns": GRID_COLUMNS,
+            "grid_rows": GRID_ROWS,
+            "patches_per_source": PATCHES_PER_SOURCE,
+            "crop_size": PATCH_SIZE,
+            "used_width": USED_WIDTH,
+            "used_height": USED_HEIGHT,
+            "discarded_bottom_pixels": DISCARDED_BOTTOM_PIXELS,
             "resize_enabled": ENABLE_RESIZE_AFTER_CROP,
             "resize_size": RESIZE_SIZE if ENABLE_RESIZE_AFTER_CROP else None,
+            "output_size": RESIZE_SIZE if ENABLE_RESIZE_AFTER_CROP else PATCH_SIZE,
             "saved_format": "jpg",
             "jpeg_quality": JPEG_QUALITY,
         },
@@ -396,7 +446,7 @@ def build_summary(
         "preview_path": str(preview_path.resolve()),
         "manifests": {
             "clahe_apply_manifest": str((OUTPUT_ROOT / "clahe_apply_manifest.csv").resolve()),
-            "random_crop_manifest": str((OUTPUT_ROOT / "random_crop_manifest.csv").resolve()),
+            "grid30_crop_manifest": str((OUTPUT_ROOT / "grid30_crop_manifest.csv").resolve()),
         },
     }
 
@@ -417,8 +467,9 @@ def main() -> None:
     )
     print(
         "裁剪参数："
-        f"每张原图 {CROPS_PER_SOURCE} 个，"
-        f"crop={CROP_SIZE}x{CROP_SIZE}，"
+        f"{GRID_COLUMNS}列 x {GRID_ROWS}行 = 每张原图 {PATCHES_PER_SOURCE} 个，"
+        f"crop={PATCH_SIZE}x{PATCH_SIZE}，"
+        f"底部丢弃={DISCARDED_BOTTOM_PIXELS}像素，"
         f"resize={ENABLE_RESIZE_AFTER_CROP}"
     )
 
@@ -428,7 +479,7 @@ def main() -> None:
     apply_manifest_rows, crop_manifest_rows, counts = process_all_sources(source_rows)
 
     write_csv(OUTPUT_ROOT / "clahe_apply_manifest.csv", apply_manifest_rows)
-    write_csv(OUTPUT_ROOT / "random_crop_manifest.csv", crop_manifest_rows)
+    write_csv(OUTPUT_ROOT / "grid30_crop_manifest.csv", crop_manifest_rows)
 
     summary = build_summary(
         source_rows=source_rows,
@@ -455,4 +506,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

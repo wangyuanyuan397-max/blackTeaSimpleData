@@ -1,10 +1,10 @@
-# CLAHE-L 明度增强 + 随机 55 patch 数据生成
+# CLAHE-L 明度增强 + 固定 30 patch 数据生成
 
 这个文件夹用于生成一套 CLAHE 预处理后的 01234 数据集，方便和原始数据、BaSiC 数据做对比。
 
 ## 当前脚本
 
-- `apply_clahe_then_random55.py`
+- `apply_clahe_then_grid30.py`
 
 ## 输入与输出
 
@@ -26,7 +26,7 @@ datasets_01234_CLAHE_L_clip1p5_grid8/
 ├── test/00,10,20,30,40
 ├── _previews/clahe_l_preview.png
 ├── clahe_apply_manifest.csv
-├── random_crop_manifest.csv
+├── grid30_crop_manifest.csv
 └── split_summary.json
 ```
 
@@ -40,7 +40,7 @@ BGR image
 → L channel: CLAHE
 → a/b channels: unchanged
 → Lab to BGR
-→ random crop 55 patches
+→ fixed 6×5 grid crop 30 patches
 ```
 
 也就是说：
@@ -58,13 +58,16 @@ CLAHE 和 BaSiC 不同：CLAHE 是每张图独立处理，不需要从训练集�
 ```python
 CLAHE_CLIP_LIMIT = 1.5
 CLAHE_TILE_GRID_SIZE = (8, 8)
-CROPS_PER_SOURCE = 55
-CROP_SIZE = 408
+PATCH_SIZE = 408
+GRID_COLUMNS = 6
+GRID_ROWS = 5
+PATCHES_PER_SOURCE = 30
 ENABLE_RESIZE_AFTER_CROP = False
-RANDOM_SEED = 2026
 ```
 
 默认不 resize，保存的是 `408×408` patch。
+
+固定裁剪方式与 `tools/data/crop_resize_30_patches.py` 一致：每张 `2448×2048` 原图按 `6×5` 网格裁成 30 个 `408×408` patch，横向完整使用 `2448` 像素，纵向使用 `2040` 像素，底部剩余 `8` 像素丢弃。
 
 如果之后想生成 `224×224` 版本，把脚本顶部改成：
 
@@ -78,10 +81,10 @@ RESIZE_SIZE = 224
 在项目根目录运行：
 
 ```powershell
-python tools\data012345\CLAHE\apply_clahe_then_random55.py
+python tools\data012345\CLAHE\apply_clahe_then_grid30.py
 ```
 
-或者在 PyCharm 里直接右键运行 `apply_clahe_then_random55.py`。
+或者在 PyCharm 里直接右键运行 `apply_clahe_then_grid30.py`。
 
 如果缺少 OpenCV：
 
@@ -114,10 +117,10 @@ tileGridSize = 8×8
 
 如果输入是每个时间点：train 15 张、val 4 张、test 5 张原图，则输出 patch 数量为：
 
-- train：5 个时间点 × 15 张 × 55 = 4125
-- val：5 个时间点 × 4 张 × 55 = 1100
-- test：5 个时间点 × 5 张 × 55 = 1375
-- 总计：6600
+- train：5 个时间点 × 15 张 × 30 = 2250
+- val：5 个时间点 × 4 张 × 30 = 600
+- test：5 个时间点 × 5 张 × 30 = 750
+- 总计：3600
 
 ## 绝对不要踩的坑
 

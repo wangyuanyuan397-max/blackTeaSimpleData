@@ -1,4 +1,4 @@
-"""对原图做 BaSiC 明度照明矫正，然后随机裁剪 55 个 408x408 patch。
+"""对原图做 BaSiC 明度照明矫正，然后按固定网格裁剪 30 个 408x408 patch。
 
 严格防止数据泄露：
 1. 只使用 datasets_01234_original_split/train 下的完整原图拟合 BaSiC 照明场；
@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import csv
 import json
-import random
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -45,7 +44,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 # 输入：已经按原图级别划分好的 train/val/test，不裁剪、不缩放的原图数据集。
 SOURCE_ROOT = PROJECT_ROOT / "datasets_01234_original_split"
 
-# 输出：BaSiC 明度矫正后再随机裁剪得到的数据集。
+# 输出：BaSiC 明度矫正后再固定网格裁剪得到的数据集。
 OUTPUT_ROOT = PROJECT_ROOT / "datasets_01234_BaSic"
 
 TIME_CODES = ("00", "10", "20", "30", "40")
@@ -58,15 +57,21 @@ FIT_SPLIT = "train"
 # cv2.resize 的 size 顺序是 (width, height)。这里用于低分辨率拟合照明场。
 FIT_SIZE = (306, 256)
 
-# 每张 BaSiC 矫正后的完整原图随机裁剪 55 个 patch。
-CROPS_PER_SOURCE = 55
-CROP_SIZE = 408
+# 固定网格裁剪参数：与 tools/data/crop_resize_30_patches.py 一致。
+EXPECTED_WIDTH = 2448
+EXPECTED_HEIGHT = 2048
+PATCH_SIZE = 408
+GRID_COLUMNS = 6
+GRID_ROWS = 5
+PATCHES_PER_SOURCE = GRID_COLUMNS * GRID_ROWS
+USED_WIDTH = PATCH_SIZE * GRID_COLUMNS
+USED_HEIGHT = PATCH_SIZE * GRID_ROWS
+DISCARDED_BOTTOM_PIXELS = EXPECTED_HEIGHT - USED_HEIGHT
 
 # 默认不 resize，直接保存 408x408；如果后续要 224 版本，可改成 True。
 ENABLE_RESIZE_AFTER_CROP = False
 RESIZE_SIZE = 224
 
-RANDOM_SEED = 2026
 JPEG_QUALITY = 95
 
 # 只矫正明度的增益限制，避免暗角被异常放大。
@@ -279,35 +284,71 @@ def save_patch(path: Path, patch_bgr: np.ndarray) -> None:
         raise RuntimeError(f"保存 patch 失败：{path}")
 
 
+def validate_image_size(image_path: Path, width: int, height: int) -> None:
+    """检查图像尺寸是否符合固定 30 patch 网格裁剪要求。"""
+    if (width, height) != (EXPECTED_WIDTH, EXPECTED_HEIGHT):
+        raise ValueError(
+            f"图像尺寸异常：{image_path}\n"
+            f"要求尺寸：{EXPECTED_WIDTH}x{EXPECTED_HEIGHT}，实际尺寸：{width}x{height}。\n"
+            "固定 30 patch 裁剪依赖 2448x2048 原图，否则裁剪坐标含义会改变。"
+        )
+
+    if USED_WIDTH > width or USED_HEIGHT > height:
+        raise ValueError(
+            f"裁剪网格超过图像边界：{image_path}，"
+            f"网格使用 {USED_WIDTH}x{USED_HEIGHT}，图像为 {width}x{height}。"
+        )
+
+
+def iter_grid_boxes() -> list[dict[str, int]]:
+    """按行优先顺序生成 30 个固定网格裁剪框。"""
+    boxes: list[dict[str, int]] = []
+    patch_index = 1
+    for row_index in range(GRID_ROWS):
+        top = row_index * PATCH_SIZE
+        for column_index in range(GRID_COLUMNS):
+            left = column_index * PATCH_SIZE
+            boxes.append(
+                {
+                    "patch_index": patch_index,
+                    "row_index": row_index + 1,
+                    "column_index": column_index + 1,
+                    "left": left,
+                    "top": top,
+                    "right": left + PATCH_SIZE,
+                    "bottom": top + PATCH_SIZE,
+                }
+            )
+            patch_index += 1
+    return boxes
+
+
 def crop_corrected_source(
     row: dict[str, str],
     corrected_bgr: np.ndarray,
     crop_manifest_rows: list[dict[str, Any]],
     counts: dict[str, dict[str, int]],
 ) -> None:
-    """对一张已经完成 BaSiC 明度矫正的完整原图随机裁剪 55 个 patch。"""
+    """对一张已经完成 BaSiC 明度矫正的完整原图按固定 6x5 网格裁剪 30 个 patch。"""
     split_name = row["split"]
     time_code = row["time_code"]
     source_image_id = row["source_image_id"]
     output_dir = OUTPUT_ROOT / split_name / time_code
 
     height, width = corrected_bgr.shape[:2]
-    if width < CROP_SIZE or height < CROP_SIZE:
-        raise ValueError(f"原图 {row['source_path']} 尺寸为 {width}x{height}，小于裁剪尺寸 {CROP_SIZE}。")
+    validate_image_size(Path(row["source_path"]), width, height)
 
-    # 每张父图独立随机流，保证与旧随机裁剪脚本一样稳定、可复现。
-    rng = random.Random(f"{RANDOM_SEED}_{source_image_id}")
-    for crop_index in range(1, CROPS_PER_SOURCE + 1):
-        left = rng.randint(0, width - CROP_SIZE)
-        top = rng.randint(0, height - CROP_SIZE)
-        right = left + CROP_SIZE
-        bottom = top + CROP_SIZE
-
+    for box in iter_grid_boxes():
+        left = box["left"]
+        top = box["top"]
+        right = box["right"]
+        bottom = box["bottom"]
         patch_bgr = corrected_bgr[top:bottom, left:right]
         if ENABLE_RESIZE_AFTER_CROP:
-            patch_bgr = cv2.resize(patch_bgr, (RESIZE_SIZE, RESIZE_SIZE), interpolation=cv2.INTER_CUBIC)
+            interpolation = cv2.INTER_AREA if RESIZE_SIZE < PATCH_SIZE else cv2.INTER_CUBIC
+            patch_bgr = cv2.resize(patch_bgr, (RESIZE_SIZE, RESIZE_SIZE), interpolation=interpolation)
 
-        save_name = f"{source_image_id}__random55_{crop_index:03d}.jpg"
+        save_name = f"{source_image_id}__grid30_{box['patch_index']:02d}.jpg"
         save_path = output_dir / save_name
         save_patch(save_path, patch_bgr)
         counts[split_name][time_code] += 1
@@ -317,20 +358,25 @@ def crop_corrected_source(
                 "time_code": time_code,
                 "source_image_id": source_image_id,
                 "source_relpath": row["source_relpath"],
-                "crop_index": crop_index,
+                "source_width": width,
+                "source_height": height,
+                "patch_index": box["patch_index"],
+                "row_index": box["row_index"],
+                "column_index": box["column_index"],
                 "left": left,
                 "top": top,
                 "right": right,
                 "bottom": bottom,
-                "crop_size": CROP_SIZE,
+                "crop_size": PATCH_SIZE,
                 "preprocess": "BaSiC_luminance_only",
                 "fit_split": FIT_SPLIT,
                 "gain_min": GAIN_MIN,
                 "gain_max": GAIN_MAX,
                 "resize_enabled": ENABLE_RESIZE_AFTER_CROP,
                 "resize_size": RESIZE_SIZE if ENABLE_RESIZE_AFTER_CROP else "",
-                "output_size": RESIZE_SIZE if ENABLE_RESIZE_AFTER_CROP else CROP_SIZE,
+                "output_size": RESIZE_SIZE if ENABLE_RESIZE_AFTER_CROP else PATCH_SIZE,
                 "target_relpath": save_path.relative_to(OUTPUT_ROOT).as_posix(),
+                "target_path": str(save_path.resolve()),
             }
         )
 
@@ -369,12 +415,15 @@ def main() -> None:
     fit_rows = [row for row in source_rows if row["split"] == FIT_SPLIT]
 
     print("=" * 100)
-    print("BaSiC 明度矫正 + 随机裁剪开始")
+    print("BaSiC 明度矫正 + 固定 30 patch 网格裁剪开始")
     print(f"输入原图级数据集：{SOURCE_ROOT}")
     print(f"输出 patch 数据集：{OUTPUT_ROOT}")
     print(f"BaSiC fit 只使用：{FIT_SPLIT}，图像数量：{len(fit_rows)}")
     print(f"fit_size(width,height)：{FIT_SIZE}")
     print("矫正方式：只矫正明度，同一个 gain 同时乘到 B/G/R 三个通道。")
+    print(f"裁剪方式：{GRID_COLUMNS}列 x {GRID_ROWS}行 = 每张原图 {PATCHES_PER_SOURCE} 个 patch")
+    print(f"裁剪坐标：x=0,408,816,1224,1632,2040；y=0,408,816,1224,1632")
+    print(f"底部丢弃：{DISCARDED_BOTTOM_PIXELS} 像素；resize={ENABLE_RESIZE_AFTER_CROP}")
     print("=" * 100)
 
     flatfield_small = fit_luminance_basic(source_rows)
@@ -385,7 +434,7 @@ def main() -> None:
     apply_manifest_rows, crop_manifest_rows, counts = apply_basic_and_crop_all(source_rows, flatfield_small)
     write_csv(OUTPUT_ROOT / "basic_fit_manifest.csv", fit_rows)
     write_csv(OUTPUT_ROOT / "basic_apply_manifest.csv", apply_manifest_rows)
-    write_csv(OUTPUT_ROOT / "random_crop_manifest.csv", crop_manifest_rows)
+    write_csv(OUTPUT_ROOT / "grid30_crop_manifest.csv", crop_manifest_rows)
 
     summary = {
         "source_root": str(SOURCE_ROOT),
@@ -393,7 +442,6 @@ def main() -> None:
         "time_codes": list(TIME_CODES),
         "splits": list(SPLITS),
         "expected_split_counts_per_time": EXPECTED_SPLIT_COUNTS,
-        "random_seed": RANDOM_SEED,
         "basic_fit_split": FIT_SPLIT,
         "basic_fit_image_count": len(fit_rows),
         "basic_fit_size_width_height": list(FIT_SIZE),
@@ -401,11 +449,19 @@ def main() -> None:
         "no_data_leakage_rule": "BaSiC.fit uses train split only; fitted flatfield is applied to train/val/test.",
         "gain_min": GAIN_MIN,
         "gain_max": GAIN_MAX,
-        "crops_per_source": CROPS_PER_SOURCE,
-        "crop_size": CROP_SIZE,
+        "crop_mode": "fixed_grid30",
+        "expected_source_size": [EXPECTED_WIDTH, EXPECTED_HEIGHT],
+        "grid_columns": GRID_COLUMNS,
+        "grid_rows": GRID_ROWS,
+        "patches_per_source": PATCHES_PER_SOURCE,
+        "crop_size": PATCH_SIZE,
+        "used_width": USED_WIDTH,
+        "used_height": USED_HEIGHT,
+        "discarded_bottom_pixels": DISCARDED_BOTTOM_PIXELS,
         "resize_after_crop": ENABLE_RESIZE_AFTER_CROP,
         "resize_size": RESIZE_SIZE if ENABLE_RESIZE_AFTER_CROP else None,
-        "output_size": RESIZE_SIZE if ENABLE_RESIZE_AFTER_CROP else CROP_SIZE,
+        "output_size": RESIZE_SIZE if ENABLE_RESIZE_AFTER_CROP else PATCH_SIZE,
+        "jpeg_quality": JPEG_QUALITY,
         "total_source_count": len(source_rows),
         "total_crop_count": len(crop_manifest_rows),
         "crop_counts": {split: dict(time_counts) for split, time_counts in counts.items()},
@@ -413,17 +469,15 @@ def main() -> None:
     with (OUTPUT_ROOT / "split_summary.json").open("w", encoding="utf-8") as file:
         json.dump(summary, file, ensure_ascii=False, indent=2)
 
-    print("BaSiC 明度矫正和随机裁剪完成。")
+    print("BaSiC 明度矫正和固定 30 patch 网格裁剪完成。")
     print(f"输出目录：{OUTPUT_ROOT}")
     print(f"flatfield：{OUTPUT_ROOT / 'flatfield_small.npy'}")
     print(f"预览图：{OUTPUT_ROOT / 'flatfield_preview.png'}")
     print(f"矫正对照：{OUTPUT_ROOT / 'basic_correction_preview.png'}")
-    print(f"随机裁剪图数量：{len(crop_manifest_rows)}")
+    print(f"固定网格裁剪图数量：{len(crop_manifest_rows)}")
     for split_name in SPLITS:
         print(f"{split_name}: {dict(counts[split_name])}")
 
 
 if __name__ == "__main__":
     main()
-
-
