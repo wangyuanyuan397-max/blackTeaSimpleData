@@ -3,7 +3,12 @@
 This temporary experiment keeps the original baseline configs unchanged:
 
 - `configs/fixed_split_01234_models/fixed_timm_mixnet_s.yaml`
-- `configs/fixed_split_01234_grid30_408_train.yaml`
+
+It uses the BaSiC-corrected grid30 patch dataset:
+
+- dataset: `datasets_01234_BaSic`
+- common training config: `temp/l2_sp/fixed_01234_basic_408_train.yaml`
+- output root: `temp/l2_sp/runs_BaSic`
 
 Run a config/data check:
 

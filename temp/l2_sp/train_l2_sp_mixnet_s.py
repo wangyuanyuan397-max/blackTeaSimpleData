@@ -18,7 +18,7 @@ import torch
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BASE_TRAIN_BATCH_PATH = PROJECT_ROOT / "tools" / "train_batch.py"
 L2SP_MODEL_CONFIG = Path("temp/l2_sp/fixed_timm_mixnet_s_l2sp_alpha001.yaml")
-COMMON_CONFIG = Path("configs/fixed_split_01234_grid30_408_train.yaml")
+COMMON_CONFIG = Path("temp/l2_sp/fixed_01234_basic_408_train.yaml")
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
