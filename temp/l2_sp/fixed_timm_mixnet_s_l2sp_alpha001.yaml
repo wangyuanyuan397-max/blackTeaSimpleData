@@ -16,6 +16,7 @@ train:
     enabled: true
     alpha: 0.01
     normalize: mean
+    constrained_weight_decay: 0.0
     include_prefixes:
       - backbone.
     exclude_prefixes:

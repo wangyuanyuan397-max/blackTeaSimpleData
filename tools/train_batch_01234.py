@@ -20,8 +20,8 @@ train_batch_base = importlib.util.module_from_spec(spec)
 sys.modules['train_batch_base'] = train_batch_base
 spec.loader.exec_module(train_batch_base)
 
-# 01234 五分类固定网格 30 patch、408×408 输入专用公共配置。
-train_batch_base.COMMON_CONFIG = Path('configs/fixed_split_01234_grid30_408_train.yaml')
+# 01234 五分类 BaSiC 预处理 + 固定网格 30 patch、408×408 输入专用公共配置。
+train_batch_base.COMMON_CONFIG = Path('configs/fixed_split_01234_BaSic_grid30_408_train.yaml')
 
 # 本次只保留 4 个代表模型，每个模型跑 3 个随机种子：2026、3407、42。
 train_batch_base.CONFIG_LIST = (
