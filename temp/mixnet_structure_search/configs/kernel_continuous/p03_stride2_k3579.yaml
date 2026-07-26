@@ -1,0 +1,20 @@
+name: p03_stride2_k3579
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_search
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    placement: STRIDE2
+    kernel_sizes:
+      - 3
+      - 5
+      - 7
+      - 9
+    gate_type: none
+    gate_reduction: 4
+  head:
+    type: linear
+    drop_rate: 0.0

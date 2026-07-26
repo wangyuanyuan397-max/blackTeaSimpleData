@@ -1,0 +1,19 @@
+name: 10_p10_only_s0_k357
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_search
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    placement: ONLY_S0
+    kernel_sizes:
+      - 3
+      - 5
+      - 7
+    gate_type: none
+    gate_reduction: 4
+  head:
+    type: linear
+    drop_rate: 0.0

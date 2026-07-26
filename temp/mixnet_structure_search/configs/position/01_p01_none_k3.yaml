@@ -1,0 +1,17 @@
+name: 01_p01_none_k3
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_search
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    placement: NONE
+    kernel_sizes:
+      - 3
+    gate_type: none
+    gate_reduction: 4
+  head:
+    type: linear
+    drop_rate: 0.0

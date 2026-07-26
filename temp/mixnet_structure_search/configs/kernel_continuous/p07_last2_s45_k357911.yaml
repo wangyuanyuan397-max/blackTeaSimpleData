@@ -1,0 +1,21 @@
+name: p07_last2_s45_k357911
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_search
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    placement: LAST2_S45
+    kernel_sizes:
+      - 3
+      - 5
+      - 7
+      - 9
+      - 11
+    gate_type: none
+    gate_reduction: 4
+  head:
+    type: linear
+    drop_rate: 0.0

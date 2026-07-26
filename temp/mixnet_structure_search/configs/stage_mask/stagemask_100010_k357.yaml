@@ -1,0 +1,60 @@
+name: stagemask_100010_k357
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_search
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    placement: ORIGINAL
+    kernel_sizes:
+      - 3
+      - 5
+      - 7
+    gate_type: none
+    gate_reduction: 4
+    kernel_plan:
+      S0B0:
+        - 3
+        - 5
+        - 7
+      S1B0:
+        - 3
+      S1B1:
+        - 3
+      S2B0:
+        - 3
+      S2B1:
+        - 3
+      S2B2:
+        - 3
+      S2B3:
+        - 3
+      S3B0:
+        - 3
+      S3B1:
+        - 3
+      S3B2:
+        - 3
+      S4B0:
+        - 3
+        - 5
+        - 7
+      S4B1:
+        - 3
+        - 5
+        - 7
+      S4B2:
+        - 3
+        - 5
+        - 7
+      S5B0:
+        - 3
+      S5B1:
+        - 3
+      S5B2:
+        - 3
+  head:
+    type: linear
+    drop_rate: 0.0
