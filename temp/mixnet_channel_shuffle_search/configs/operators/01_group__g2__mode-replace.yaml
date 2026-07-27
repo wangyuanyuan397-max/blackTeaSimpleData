@@ -1,0 +1,19 @@
+name: 01_group__g2__mode-replace
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_channel_shuffle_search
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    fusion_type: group
+    target_groups: 2
+    partial_ratio: 0.5000
+    placement: ALL
+    shuffle_mode: scale
+    insertion_mode: replace
+    random_permutation_seed: 2026
+  head:
+    type: linear
+    drop_rate: 0.0

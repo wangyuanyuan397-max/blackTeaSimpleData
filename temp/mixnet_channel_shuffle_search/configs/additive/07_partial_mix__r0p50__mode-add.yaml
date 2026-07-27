@@ -1,0 +1,19 @@
+name: 07_partial_mix__r0p50__mode-add
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_channel_shuffle_search
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    fusion_type: partial_mix
+    target_groups: 1
+    partial_ratio: 0.5000
+    placement: ALL
+    shuffle_mode: scale
+    insertion_mode: add
+    random_permutation_seed: 2026
+  head:
+    type: linear
+    drop_rate: 0.0
