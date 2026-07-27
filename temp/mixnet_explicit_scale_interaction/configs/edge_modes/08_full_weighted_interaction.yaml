@@ -1,0 +1,17 @@
+name: 08_full_weighted_interaction
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_explicit_scale_interaction
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    interaction_type: full_weighted_interaction
+    placement: ALL
+    edge_mode: adjacent
+    residual_strength: 1.0000
+    attention_hidden_dim: 8
+  head:
+    type: linear
+    drop_rate: 0.0
