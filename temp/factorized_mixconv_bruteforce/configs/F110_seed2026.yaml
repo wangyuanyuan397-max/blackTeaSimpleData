@@ -1,0 +1,22 @@
+name: F110_seed2026
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_factorized
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    factorized_kernels:
+      - 5
+      - 7
+  head:
+    type: linear
+    drop_rate: 0.0
+factorized_mixconv:
+  config_name: F110
+  bit_order: [5, 7, 9]
+  factorized_kernels:
+    - 5
+    - 7

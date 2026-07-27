@@ -1,0 +1,61 @@
+# Common training config for Factorized MixConv brute force on BaSiC grid30 patches.
+experiment_name: factorized_mixconv_bruteforce_01234_basic_408
+
+dataset_root: datasets_01234_BaSic
+runs_root: temp/factorized_mixconv_bruteforce/runs_BaSic
+
+random_seed: 2026
+
+class_to_idx:
+  "00": 0
+  "10": 1
+  "20": 2
+  "30": 3
+  "40": 4
+
+data:
+  type: image_folder
+  image_size: 408
+  train_transform:
+    type: patch_train_224
+    image_size: 408
+  eval_transform:
+    type: patch_eval_224
+    image_size: 408
+  test_transform:
+    type: patch_eval_224
+    image_size: 408
+
+train:
+  epochs: 150
+  batch_size: 32
+  val_batch_size: 64
+  test_batch_size: 64
+  accumulation_steps: 1
+  num_workers: 4
+  weighted_sampler: false
+  patience: 30
+  selection_metric: val_acc
+  selection_mode: max
+  selection_min_delta: 0.0
+  enable_error_analysis: false
+  error_analysis_save_images: false
+  tta_mode: mean
+  tta_topk: 0
+  tta_compare: false
+  tta_compare_modes: []
+  keep_pth_files: false
+
+optimizer:
+  type: adamw
+  lr: 0.0001
+  weight_decay: 0.0005
+
+scheduler:
+  type: cosine
+  warmup_epochs: 2
+  min_lr: 0.000001
+
+loss:
+  type: cross_entropy
+  label_smoothing: 0.0
