@@ -159,7 +159,7 @@ def generate_edge_mode_configs() -> list[Path]:
     generated = []
     for index, (interaction_type, edge_mode) in enumerate(specs):
         name = make_experiment_name(interaction_type, edge_mode=edge_mode)
-        path = CONFIG_ROOT / "edge_modes" / f"{index:02d}_{name}.yaml"
+        path = CONFIG_ROOT / "edge_modes" / f"edge_{index:02d}_{name}.yaml"
         write_config(
             path,
             name=path.stem,

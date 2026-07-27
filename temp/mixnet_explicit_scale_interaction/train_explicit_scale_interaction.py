@@ -103,7 +103,8 @@ def collect_config_paths(args: argparse.Namespace) -> tuple[Path, ...]:
         paths = []
         for phase in phases:
             directory = PHASE_DIRS[phase]
-            paths.extend(sorted(directory.glob("*.yaml")))
+            pattern = "edge_*.yaml" if phase == "edge_modes" else "*.yaml"
+            paths.extend(sorted(directory.glob(pattern)))
 
     missing = [path for path in paths if not path.is_file()]
     if missing:

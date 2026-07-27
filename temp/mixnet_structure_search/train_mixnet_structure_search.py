@@ -157,6 +157,7 @@ def _install_memory_only_checkpoints(train_batch_base: Any) -> None:
         state_dict = checkpoint.get("model_state_dict", checkpoint)
         trainer.model.load_state_dict(state_dict)
         trainer.model.eval()
+        # 11
 
         test_metrics = trainer.evaluator.evaluate(
             trainer.test_loader,
