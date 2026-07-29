@@ -1,0 +1,17 @@
+# 原始 MixNet-S baseline，用来和 AD-GBC 暴力搜索结果对照。
+name: baseline_mixnet_s_seed2026
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: timm
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+  head:
+    type: linear
+    drop_rate: 0.0
+loss:
+  type: cross_entropy
+  label_smoothing: 0.0

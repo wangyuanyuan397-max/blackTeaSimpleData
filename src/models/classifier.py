@@ -5,6 +5,7 @@
 ????: ?????????????????
 """
 
+import torch
 import torch.nn as nn
 from ..utils.registry import MODELS, BACKBONES, HEADS
 
@@ -130,7 +131,14 @@ class ImageClassifier(nn.Module):
         if self.aux_head is not None:
             aux_output = self.aux_head(features)
             return x, aux_output
-        
+
+        # AD-GBC 只在训练态返回 backbone 辅助损失；验证/测试时保持普通 logits 输出。
+        get_backbone_auxiliary = getattr(self.backbone, "get_auxiliary_outputs", None)
+        if callable(get_backbone_auxiliary) and torch.is_grad_enabled():
+            backbone_auxiliary = get_backbone_auxiliary()
+            if backbone_auxiliary:
+                return x, backbone_auxiliary
+
         # 如果开启了 return_embeddings 标志，则返回 (logits, embeddings) 元组
         return_embeddings_flag = getattr(self, "return_embeddings", False)
         if return_embeddings_flag:

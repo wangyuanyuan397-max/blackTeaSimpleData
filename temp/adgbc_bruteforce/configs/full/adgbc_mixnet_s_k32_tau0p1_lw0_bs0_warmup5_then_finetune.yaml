@@ -1,0 +1,34 @@
+# AD-GBC 净化器插在 timm backbone 的 feature map 和全局池化之间。
+name: adgbc_mixnet_s_k32_tau0p1_lw0_bs0_warmup5_then_finetune
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: timm_adgbc
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    # adgbc_k 是弹性区域数量；adgbc_tau 越小，软分配越尖锐。
+    adgbc_k: 32
+    adgbc_dim: 256
+    adgbc_tau: 0.1
+    normalize_region_desc: true
+    use_refine: true
+  head:
+    type: linear
+    drop_rate: 0.0
+loss:
+  type: adgbc_cross_entropy
+  label_smoothing: 0.0
+  # lambda_w_div 控制区域多样性；beta_scale_con 控制尺度一致性。
+  lambda_w_div: 0
+  beta_scale_con: 0
+train:
+  staged_training:
+    enabled: true
+    freeze_backbone_epochs: 5
+    stage1_lr: 0.0001
+    stage2_lr: 0.0001
+    stage1_warmup_epochs: 2
+    stage2_warmup_epochs: 2

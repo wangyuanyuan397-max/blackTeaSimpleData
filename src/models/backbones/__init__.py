@@ -21,6 +21,7 @@ from .efficientnet_gated import (
     EfficientNetV2SMultiStageGatedFusionBackbone,
 )
 from .mixnet_search import MixNetSSearchBackbone
+from .adgbc import TimmADGBCBackbone
 from .vim import VimSmallMiddleClsTokenBackbone
 
 try:
@@ -49,6 +50,7 @@ __all__ = [
     'EfficientNetV2SGatedRefinementBackbone',
     'EfficientNetV2SMultiStageGatedFusionBackbone',
     'MixNetSSearchBackbone',
+    'TimmADGBCBackbone',
     'VimSmallMiddleClsTokenBackbone',
     "MambaOutTinyCEBackbone",
     "ResNet50",

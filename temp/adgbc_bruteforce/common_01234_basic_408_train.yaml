@@ -1,0 +1,62 @@
+# AD-GBC 暴力搜索公共训练配置：只保留日志和指标，不保留权重文件。
+experiment_name: adgbc_bruteforce_01234_basic_408
+
+dataset_root: datasets_01234_BaSic
+runs_root: temp/adgbc_bruteforce/runs_BaSic
+
+random_seed: 2026
+
+class_to_idx:
+  "00": 0
+  "10": 1
+  "20": 2
+  "30": 3
+  "40": 4
+
+data:
+  type: image_folder
+  image_size: 408
+  train_transform:
+    type: patch_train_224
+    image_size: 408
+  eval_transform:
+    type: patch_eval_224
+    image_size: 408
+  test_transform:
+    type: patch_eval_224
+    image_size: 408
+
+train:
+  epochs: 150
+  batch_size: 32
+  val_batch_size: 64
+  test_batch_size: 64
+  accumulation_steps: 1
+  num_workers: 4
+  weighted_sampler: false
+  patience: 30
+  selection_metric: val_acc
+  selection_mode: max
+  selection_min_delta: 0.0
+  enable_error_analysis: false
+  error_analysis_save_images: false
+  tta_mode: mean
+  tta_topk: 0
+  tta_compare: false
+  tta_compare_modes: []
+  # 这一批实验组合很多，完成测试后删除 best_model.pth，避免硬盘被权重文件占满。
+  keep_pth_files: false
+
+optimizer:
+  type: adamw
+  lr: 0.0001
+  weight_decay: 0.0005
+
+scheduler:
+  type: cosine
+  warmup_epochs: 2
+  min_lr: 0.000001
+
+loss:
+  type: cross_entropy
+  label_smoothing: 0.0
