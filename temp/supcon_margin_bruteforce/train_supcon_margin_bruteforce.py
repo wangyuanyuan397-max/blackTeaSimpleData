@@ -19,6 +19,7 @@ RUNS_ROOT = PROJECT_ROOT / "temp/supcon_margin_bruteforce/runs_BaSic"
 PHASE_DIRS = {
     "baseline": CONFIG_ROOT / "baseline",
     "smoke": CONFIG_ROOT / "smoke",
+    "core": CONFIG_ROOT / "core",
     "full": CONFIG_ROOT / "full",
 }
 # 暴力搜索实验统一不保留 .pth 权重，只保留日志、指标和汇总表。
@@ -49,7 +50,7 @@ def parse_local_args(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
     parser.add_argument(
         "--phase",
         nargs="+",
-        choices=("baseline", "smoke", "full", "all"),
+        choices=("baseline", "smoke", "core", "full", "all", "exhaustive"),
         default=("smoke",),
         help="SupCon+Margin config phase to run before forwarding remaining args.",
     )
@@ -74,6 +75,8 @@ def parse_local_args(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
 
 def expand_phases(phases: list[str]) -> list[str]:
     if "all" in phases:
+        return ["baseline", "core"]
+    if "exhaustive" in phases:
         return ["baseline", "full"]
     return phases
 
@@ -123,6 +126,8 @@ def main() -> None:
         old_argv = sys.argv
         try:
             generate_phase = "all" if "all" in local_args.phase else local_args.phase[0]
+            if "exhaustive" in local_args.phase:
+                generate_phase = "exhaustive"
             sys.argv = ["generate_supcon_margin_configs.py", "--phase", generate_phase]
             generate_main()
         finally:

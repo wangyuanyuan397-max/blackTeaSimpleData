@@ -32,6 +32,17 @@ SMOKE_GRID = {
     "classifier_features": ("projected", "raw"),
 }
 
+CORE_GRID = {
+    # 核心搜索保留最可能有效的组合，把 full 的 2700 个压缩到 160 个。
+    "margin_values": (0.0, 0.05, 0.1, 0.15),
+    "scale_values": (30.0, 64.0),
+    "temperature_values": (0.05, 0.1),
+    "lambda_supcon_values": (0.0, 0.5, 1.0),
+    "lr_values": (0.0003, 0.001),
+    "projector_out_values": (128,),
+    "classifier_features": ("projected", "raw"),
+}
+
 
 def slug_float(value: float) -> str:
     text = f"{float(value):g}"
@@ -219,6 +230,10 @@ def generate_smoke_configs() -> list[Path]:
     return generate_grid(CONFIG_ROOT / "smoke", **SMOKE_GRID)
 
 
+def generate_core_configs() -> list[Path]:
+    return generate_grid(CONFIG_ROOT / "core", **CORE_GRID)
+
+
 def generate_full_configs() -> list[Path]:
     return generate_grid(
         CONFIG_ROOT / "full",
@@ -236,7 +251,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate SupCon + Margin brute-force configs.")
     parser.add_argument(
         "--phase",
-        choices=("baseline", "smoke", "full", "all"),
+        choices=("baseline", "smoke", "core", "full", "all", "exhaustive"),
         default="all",
     )
     return parser.parse_args()
@@ -247,9 +262,15 @@ def main() -> None:
     generators = {
         "baseline": generate_baseline_configs,
         "smoke": generate_smoke_configs,
+        "core": generate_core_configs,
         "full": generate_full_configs,
     }
-    selected = ("baseline", "full") if args.phase == "all" else (args.phase,)
+    if args.phase == "all":
+        selected = ("baseline", "core")
+    elif args.phase == "exhaustive":
+        selected = ("baseline", "full")
+    else:
+        selected = (args.phase,)
     generated: list[Path] = []
     for phase in selected:
         generated.extend(generators[phase]())

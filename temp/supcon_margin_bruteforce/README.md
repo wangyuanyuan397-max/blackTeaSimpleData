@@ -9,7 +9,19 @@
 - common config: `temp/supcon_margin_bruteforce/common_01234_basic_408_train.yaml`
 - output root: `temp/supcon_margin_bruteforce/runs_BaSic`
 
-完整搜索网格：
+推荐核心搜索网格：
+
+- `margin`: 0, 0.05, 0.1, 0.15
+- `scale`: 30, 64
+- `temperature`: 0.05, 0.1
+- `lambda_supcon`: 0, 0.5, 1.0
+- `lr`: 3e-4, 1e-3
+- `projector_out`: 128
+- `classifier_feature`: `projected`, `raw`
+
+核心搜索总量：1 个 baseline + 160 个 SupCon/Margin 配置。
+
+完整极限搜索网格：
 
 - `margin`: 0, 0.05, 0.1, 0.15, 0.2
 - `scale`: 16, 30, 64
@@ -21,7 +33,7 @@
 
 `lambda_supcon=0` 时温度不参与损失，生成器只保留 `temperature=0.1`，避免重复实验。
 
-总量：1 个 baseline + 2700 个 SupCon/Margin 配置。
+极限搜索总量：1 个 baseline + 2700 个 SupCon/Margin 配置。不建议直接跑，除非核心搜索已经有明确信号。
 
 生成配置：
 
@@ -36,10 +48,16 @@ conda run --no-capture-output -n yolov8 python temp\supcon_margin_bruteforce\tra
 conda run --no-capture-output -n yolov8 python temp\supcon_margin_bruteforce\train_supcon_margin_bruteforce.py --phase smoke --device auto
 ```
 
-跑完整暴力队列：
+跑推荐核心队列：
 
 ```powershell
 conda run --no-capture-output -n yolov8 python temp\supcon_margin_bruteforce\train_supcon_margin_bruteforce.py --phase all --generate --device auto
+```
+
+如果确实要跑 2700 个极限穷举：
+
+```powershell
+conda run --no-capture-output -n yolov8 python temp\supcon_margin_bruteforce\train_supcon_margin_bruteforce.py --phase exhaustive --generate --device auto
 ```
 
 汇总结果：
