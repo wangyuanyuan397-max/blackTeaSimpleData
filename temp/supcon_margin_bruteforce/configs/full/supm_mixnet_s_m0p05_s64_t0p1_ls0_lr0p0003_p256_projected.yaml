@@ -1,0 +1,34 @@
+# SupCon + Margin：训练集使用双视图增强，验证/测试仍走普通单图推理。
+name: supm_mixnet_s_m0p05_s64_t0p1_ls0_lr0p0003_p256_projected
+random_seed: 2026
+data:
+  train_transform:
+    # 同一张图独立增强两次，collate 后输入模型为 [B,2,C,H,W]。
+    type: two_view_patch_train_224
+    image_size: 408
+model:
+  type: supcon_margin_classifier
+  strategy: classification
+  backbone:
+    type: timm
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+  projector:
+    hidden_features: 512
+    out_features: 256
+    drop_rate: 0.0
+  classifier_feature: projected
+  head:
+    type: cosine_margin
+    # margin 只在训练 loss 中扣真实类别；推理时使用未扣分的余弦相似度。
+    margin: 0.05
+    scale: 64
+loss:
+  type: supcon_margin
+  lambda_ce: 1.0
+  # lambda_supcon=0 是 margin-only / cosine-CE 控制组。
+  lambda_supcon: 0
+  temperature: 0.1
+optimizer:
+  lr: 0.0003

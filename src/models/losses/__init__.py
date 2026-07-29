@@ -4,6 +4,7 @@ from .boundary_adaptive_soft_ce import BoundaryAdaptiveSoftCrossEntropyLoss
 from .distance_soft_ce import DistanceAwareSoftCrossEntropyLoss
 from .distance_soft_ce_with_aux_regression import DistanceSoftCEWithAuxRegressionLoss
 from .adgbc_loss import ADGBCCrossEntropyLoss
+from .supcon_margin_loss import SupConMarginLoss
 from .ordinal_opcl import OrdinalOPCLLoss
 from .probabilistic_ordinal import ProbabilisticOrdinalLoss
 from .controlled_single_variable import (
@@ -20,6 +21,7 @@ __all__ = [
     "DistanceAwareSoftCrossEntropyLoss",
     "DistanceSoftCEWithAuxRegressionLoss",
     "ADGBCCrossEntropyLoss",
+    "SupConMarginLoss",
     "OrdinalOPCLLoss",
     "ProbabilisticOrdinalLoss",
     "CoralOrdinalLoss",

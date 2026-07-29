@@ -30,6 +30,25 @@ def build_patch_train_transform(image_size: int = 224) -> T.Compose:
     )
 
 
+class TwoViewTransform:
+    """对同一张图片独立做两次随机增强，供监督对比学习使用。"""
+
+    def __init__(self, base_transform) -> None:
+        self.base_transform = base_transform
+
+    def __call__(self, image):
+        # 返回 [2, C, H, W]，DataLoader collate 后得到 [B, 2, C, H, W]。
+        view1 = self.base_transform(image)
+        view2 = self.base_transform(image)
+        return torch.stack([view1, view2], dim=0)
+
+
+@TRANSFORMS.register("two_view_patch_train_224")
+def build_two_view_patch_train_transform(image_size: int = 224) -> TwoViewTransform:
+    """为 SupCon 实验构建双视图训练增强；验证/测试仍使用单视图确定性变换。"""
+    return TwoViewTransform(build_patch_train_transform(image_size=image_size))
+
+
 @TRANSFORMS.register("patch_eval_224")
 def build_patch_eval_transform(image_size: int = 224) -> T.Compose:
     """为验证集和测试集构建无随机增强的确定性变换。"""

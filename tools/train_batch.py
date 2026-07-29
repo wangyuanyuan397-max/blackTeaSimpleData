@@ -1561,8 +1561,8 @@ def build_training_config_from_file(
         runtime_config['loss'] = copy.deepcopy(model_config['loss'])
     if model_config.get('random_seed') is not None:
         runtime_config['random_seed'] = int(model_config['random_seed'])
-    # 单模型 YAML 可以只覆盖二阶段训练所需字段，而不复制整份公共配置。
-    for section_name in ('train', 'optimizer', 'scheduler'):
+    # 单模型 YAML 可以只覆盖本轮实验需要调整的子字段，而不复制整份公共配置。
+    for section_name in ('data', 'train', 'optimizer', 'scheduler'):
         section_override = model_config.get(section_name)
         if not isinstance(section_override, dict):
             continue

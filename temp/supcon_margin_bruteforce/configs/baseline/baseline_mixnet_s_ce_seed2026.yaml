@@ -1,0 +1,19 @@
+# 原始 MixNet-S + Linear + CE baseline；保持单视图训练增强。
+name: baseline_mixnet_s_ce_seed2026
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: timm
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+  head:
+    type: linear
+    drop_rate: 0.0
+loss:
+  type: cross_entropy
+  label_smoothing: 0.0
+optimizer:
+  lr: 0.001
