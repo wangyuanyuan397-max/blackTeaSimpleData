@@ -10,6 +10,7 @@ from typing import Any
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+THIS_DIR = Path(__file__).resolve().parent
 BASE_TRAIN_BATCH_PATH = PROJECT_ROOT / "tools" / "train_batch.py"
 COMMON_CONFIG = Path("temp/mixnet_structure_search/common_01234_basic_408_train.yaml")
 CONFIG_ROOT = Path("temp/mixnet_structure_search/configs")
@@ -19,12 +20,23 @@ PHASE_DIRS = {
     "stage_mask": CONFIG_ROOT / "stage_mask",
     "kernel_continuous": CONFIG_ROOT / "kernel_continuous",
     "gates": CONFIG_ROOT / "gates",
+    "followup_seed_repro": CONFIG_ROOT / "followup_seed_repro",
+    "followup_champion_gates": CONFIG_ROOT / "followup_champion_gates",
+    "followup_s235_kernel_grid": CONFIG_ROOT / "followup_s235_kernel_grid",
 }
+ALL_PHASES = ("position", "stage_mask", "kernel_continuous", "gates")
+FOLLOWUP_PHASES = (
+    "followup_seed_repro",
+    "followup_champion_gates",
+    "followup_s235_kernel_grid",
+)
 KEEP_PTH_FLAGS = {"--keep-pth", "--keep-pth-files"}
 DISCARD_PTH_FLAGS = {"--discard-pth", "--discard-pth-files"}
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+if str(THIS_DIR) not in sys.path:
+    sys.path.insert(0, str(THIS_DIR))
 
 
 def _load_train_batch_module():
@@ -42,7 +54,18 @@ def parse_phase_args(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
     parser.add_argument(
         "--phase",
         nargs="+",
-        choices=("position", "stage_mask", "kernel_continuous", "gates", "smoke", "all"),
+        choices=(
+            "position",
+            "stage_mask",
+            "kernel_continuous",
+            "gates",
+            "smoke",
+            "all",
+            "followup_seed_repro",
+            "followup_champion_gates",
+            "followup_s235_kernel_grid",
+            "followup_all",
+        ),
         default=("position",),
         help="Generated config phase to run before forwarding remaining args to train_batch.py.",
     )
@@ -52,7 +75,25 @@ def parse_phase_args(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
         default=None,
         help="Optional directory of YAML configs to run instead of --phase.",
     )
+    parser.add_argument(
+        "--generate-followup",
+        action="store_true",
+        help="Regenerate follow-up YAML configs before collecting them.",
+    )
+    parser.add_argument(
+        "--no-summary",
+        action="store_true",
+        help="Skip follow-up CSV summarization after training.",
+    )
     return parser.parse_known_args(argv)
+
+
+def expand_phases(phases: list[str]) -> list[str]:
+    if "all" in phases:
+        return list(ALL_PHASES)
+    if "followup_all" in phases:
+        return list(FOLLOWUP_PHASES)
+    return phases
 
 
 def collect_config_paths(args: argparse.Namespace) -> tuple[Path, ...]:
@@ -63,9 +104,7 @@ def collect_config_paths(args: argparse.Namespace) -> tuple[Path, ...]:
             raise FileNotFoundError(f"No YAML configs found in {directory}")
         return tuple(paths)
 
-    phases = list(args.phase)
-    if "all" in phases:
-        phases = ["position", "stage_mask", "kernel_continuous", "gates"]
+    phases = expand_phases(list(args.phase))
     if "smoke" in phases:
         smoke_dir = PHASE_DIRS["position"]
         paths = [
@@ -84,6 +123,13 @@ def collect_config_paths(args: argparse.Namespace) -> tuple[Path, ...]:
         raise FileNotFoundError(
             "Missing generated configs. Run: python temp\\mixnet_structure_search\\generate_mixnet_search_configs.py"
         )
+    if not paths:
+        if any(phase.startswith("followup_") for phase in phases):
+            raise FileNotFoundError(
+                "No follow-up configs found. Run: "
+                "python temp\\mixnet_structure_search\\generate_mixnet_followup_configs.py --phase all"
+            )
+        raise FileNotFoundError("No YAML configs were selected for the requested phase.")
     return tuple(paths)
 
 
@@ -93,6 +139,14 @@ def enforce_discard_pth(args: list[str]) -> list[str]:
     if any(arg in DISCARD_PTH_FLAGS for arg in args):
         return args
     return [*args, "--discard-pth"]
+
+
+def should_summarize_followup(args: argparse.Namespace, forwarded_args: list[str]) -> bool:
+    if args.no_summary or "--dry-run" in forwarded_args or "--list-models" in forwarded_args:
+        return False
+    if args.config_dir is not None:
+        return "followup" in str(args.config_dir).lower()
+    return any(phase.startswith("followup_") for phase in expand_phases(list(args.phase)))
 
 
 def _install_memory_only_checkpoints(train_batch_base: Any) -> None:
@@ -213,8 +267,18 @@ def _install_memory_only_checkpoints(train_batch_base: Any) -> None:
 
 def main() -> None:
     phase_args, remaining = parse_phase_args(sys.argv[1:])
+    if phase_args.generate_followup:
+        from generate_mixnet_followup_configs import main as generate_followup_main
+
+        old_argv = sys.argv
+        try:
+            sys.argv = ["generate_mixnet_followup_configs.py", "--phase", "all"]
+            generate_followup_main()
+        finally:
+            sys.argv = old_argv
     config_paths = collect_config_paths(phase_args)
     remaining = enforce_discard_pth(remaining)
+    summarize_after_run = should_summarize_followup(phase_args, remaining)
 
     train_batch_base = _load_train_batch_module()
     _install_memory_only_checkpoints(train_batch_base)
@@ -225,8 +289,19 @@ def main() -> None:
     train_batch_base.PYCHARM_FAIL_FAST = False
     train_batch_base.PYCHARM_KEEP_PTH_FILES = False
 
-    sys.argv = [sys.argv[0], *remaining]
-    train_batch_base.main()
+    exit_error: BaseException | None = None
+    try:
+        sys.argv = [sys.argv[0], *remaining]
+        train_batch_base.main()
+    except BaseException as exc:
+        exit_error = exc
+    finally:
+        if summarize_after_run:
+            from summarize_mixnet_followup_results import summarize_results
+
+            summarize_results()
+    if exit_error is not None:
+        raise exit_error
 
 
 if __name__ == "__main__":

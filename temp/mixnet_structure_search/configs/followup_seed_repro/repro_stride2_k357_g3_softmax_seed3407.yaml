@@ -1,0 +1,20 @@
+name: repro_stride2_k357_g3_softmax_seed3407
+random_seed: 3407
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_search
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    placement: STRIDE2
+    kernel_sizes:
+      - 3
+      - 5
+      - 7
+    gate_type: softmax
+    gate_reduction: 4
+  head:
+    type: linear
+    drop_rate: 0.0
