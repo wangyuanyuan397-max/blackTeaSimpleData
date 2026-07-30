@@ -83,8 +83,12 @@ class SupConMarginClassifier(nn.Module):
         head: dict[str, Any],
         projector: dict[str, Any] | None = None,
         classifier_feature: str = "projected",
+        return_embeddings: bool = False,
     ) -> None:
         super().__init__()
+        # ComponentBuilder 会按通用 ImageClassifier 配置注入 return_embeddings；
+        # SupCon/Margin 的训练辅助张量由模型内部按训练态返回，这里只做兼容接收。
+        self.return_embeddings = bool(return_embeddings)
         self.backbone = self._build_backbone(backbone)
         backbone_features = int(getattr(self.backbone, "out_features"))
 
