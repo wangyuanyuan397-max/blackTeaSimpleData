@@ -1,0 +1,49 @@
+name: 12_p12_only_s2_k357_D11000_seed2026
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_deformable
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    placement: ONLY_S2
+    kernel_sizes:
+    - 3
+    - 5
+    - 7
+    gate_type: none
+    gate_reduction: 4
+    deform_stage_ids:
+    - 0
+    - 1
+    num_heads: 4
+    num_points: 4
+    max_offset: 2.0
+    attention_dropout: 0.0
+    projection_dropout: 0.0
+    layer_scale_init: 0.001
+    deform_checkpoint: false
+  head:
+    type: linear
+    drop_rate: 0.0
+random_seed: 2026
+deformable_attention:
+  stage_bits: '11000'
+  bit_order:
+  - S0
+  - S1
+  - S2
+  - S3
+  - S4
+  deform_stage_ids:
+  - 0
+  - 1
+  num_heads: 4
+  num_points: 4
+  max_offset: 2.0
+  attention_dropout: 0.0
+  projection_dropout: 0.0
+  layer_scale_init: 0.001
+structure_source: 12_p12_only_s2_k357
+deformable_source: D11000_seed2026

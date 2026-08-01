@@ -21,6 +21,7 @@ from .efficientnet_gated import (
     EfficientNetV2SMultiStageGatedFusionBackbone,
 )
 from .mixnet_search import MixNetSSearchBackbone
+from .mixnet_deformable import MixNetSDeformableBackbone
 from .adgbc import TimmADGBCBackbone
 from .vim import VimSmallMiddleClsTokenBackbone
 
@@ -50,6 +51,7 @@ __all__ = [
     'EfficientNetV2SGatedRefinementBackbone',
     'EfficientNetV2SMultiStageGatedFusionBackbone',
     'MixNetSSearchBackbone',
+    'MixNetSDeformableBackbone',
     'TimmADGBCBackbone',
     'VimSmallMiddleClsTokenBackbone',
     "MambaOutTinyCEBackbone",

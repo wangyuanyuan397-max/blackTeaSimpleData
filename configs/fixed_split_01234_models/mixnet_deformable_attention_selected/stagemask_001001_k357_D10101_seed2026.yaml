@@ -1,0 +1,98 @@
+name: stagemask_001001_k357_D10101_seed2026
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_deformable
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    placement: ORIGINAL
+    kernel_sizes:
+    - 3
+    - 5
+    - 7
+    gate_type: none
+    gate_reduction: 4
+    kernel_plan:
+      S0B0:
+      - 3
+      S1B0:
+      - 3
+      S1B1:
+      - 3
+      S2B0:
+      - 3
+      - 5
+      - 7
+      S2B1:
+      - 3
+      - 5
+      - 7
+      S2B2:
+      - 3
+      - 5
+      - 7
+      S2B3:
+      - 3
+      - 5
+      - 7
+      S3B0:
+      - 3
+      S3B1:
+      - 3
+      S3B2:
+      - 3
+      S4B0:
+      - 3
+      S4B1:
+      - 3
+      S4B2:
+      - 3
+      S5B0:
+      - 3
+      - 5
+      - 7
+      S5B1:
+      - 3
+      - 5
+      - 7
+      S5B2:
+      - 3
+      - 5
+      - 7
+    deform_stage_ids:
+    - 0
+    - 2
+    - 4
+    num_heads: 4
+    num_points: 4
+    max_offset: 2.0
+    attention_dropout: 0.0
+    projection_dropout: 0.0
+    layer_scale_init: 0.001
+    deform_checkpoint: false
+  head:
+    type: linear
+    drop_rate: 0.0
+random_seed: 2026
+deformable_attention:
+  stage_bits: '10101'
+  bit_order:
+  - S0
+  - S1
+  - S2
+  - S3
+  - S4
+  deform_stage_ids:
+  - 0
+  - 2
+  - 4
+  num_heads: 4
+  num_points: 4
+  max_offset: 2.0
+  attention_dropout: 0.0
+  projection_dropout: 0.0
+  layer_scale_init: 0.001
+structure_source: stagemask_001001_k357
+deformable_source: D10101_seed2026

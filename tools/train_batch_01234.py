@@ -24,24 +24,80 @@ train_batch_base.COMMON_CONFIG = Path(
     "configs/fixed_split_01234_BaSic_grid30_408_train.yaml"
 )
 
-# Current queue: AdamNorm LR sweep. All non-LR training hyperparameters inherit
-# from the common 01234 BaSiC/grid30/408 config.
+# Current queue: selected MixNet structure x deformable-attention sweep.
+# All training hyperparameters inherit from the common 01234 BaSiC/grid30/408 config.
 train_batch_base.CONFIG_LIST = (
     Path(
-        "configs/fixed_split_01234_models/adamnorm_lr_sweep/"
-        "adamnorm_stagemask_001101_k357_lr0p0001.yaml"
+        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
+        "D11000_seed2026.yaml"
     ),
     Path(
-        "configs/fixed_split_01234_models/adamnorm_lr_sweep/"
-        "adamnorm_stagemask_001101_k357_lr0p0003.yaml"
+        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
+        "D10101_seed2026.yaml"
     ),
     Path(
-        "configs/fixed_split_01234_models/adamnorm_lr_sweep/"
-        "adamnorm_stagemask_001101_k357_lr0p0005.yaml"
+        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
+        "stagemask_001101_k357_D11000_seed2026.yaml"
     ),
     Path(
-        "configs/fixed_split_01234_models/adamnorm_lr_sweep/"
-        "adamnorm_stagemask_001101_k357_lr0p001.yaml"
+        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
+        "stagemask_001101_k357_D10101_seed2026.yaml"
+    ),
+    Path(
+        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
+        "10_p10_only_s0_k357_D11000_seed2026.yaml"
+    ),
+    Path(
+        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
+        "10_p10_only_s0_k357_D10101_seed2026.yaml"
+    ),
+    Path(
+        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
+        "stagemask_000101_k357_D11000_seed2026.yaml"
+    ),
+    Path(
+        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
+        "stagemask_000101_k357_D10101_seed2026.yaml"
+    ),
+    Path(
+        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
+        "p03_stride2_k357_g3_softmax_D11000_seed2026.yaml"
+    ),
+    Path(
+        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
+        "p03_stride2_k357_g3_softmax_D10101_seed2026.yaml"
+    ),
+    Path(
+        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
+        "stagemask_001001_k357_D11000_seed2026.yaml"
+    ),
+    Path(
+        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
+        "stagemask_001001_k357_D10101_seed2026.yaml"
+    ),
+    Path(
+        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
+        "13_p13_only_s3_k357_D11000_seed2026.yaml"
+    ),
+    Path(
+        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
+        "13_p13_only_s3_k357_D10101_seed2026.yaml"
+    ),
+    Path(
+        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
+        "stagemask_011010_k357_D11000_seed2026.yaml"
+    ),
+    Path(
+        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
+        "stagemask_011010_k357_D10101_seed2026.yaml"
+    ),
+    Path(
+        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
+        "12_p12_only_s2_k357_D11000_seed2026.yaml"
+    ),
+    Path(
+        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
+        "12_p12_only_s2_k357_D10101_seed2026.yaml"
     ),
 )
 
