@@ -1,0 +1,73 @@
+﻿# 从 temp/mixnet_structure_search 抽出的 MixNet-S 结构搜索有效模型。
+# 中文说明：stage mask 011010，启用 S1、S2、S4，核集合 K357。
+# 公共训练变量由 configs/fixed_split_01234_BaSic_grid30_408_train.yaml 统一提供；本文件只覆盖模型结构。
+name: stagemask_011010_k357
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_search
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    placement: ORIGINAL
+    kernel_sizes:
+      - 3
+      - 5
+      - 7
+    gate_type: none
+    gate_reduction: 4
+    kernel_plan:
+      S0B0:
+        - 3
+      S1B0:
+        - 3
+        - 5
+        - 7
+      S1B1:
+        - 3
+        - 5
+        - 7
+      S2B0:
+        - 3
+        - 5
+        - 7
+      S2B1:
+        - 3
+        - 5
+        - 7
+      S2B2:
+        - 3
+        - 5
+        - 7
+      S2B3:
+        - 3
+        - 5
+        - 7
+      S3B0:
+        - 3
+      S3B1:
+        - 3
+      S3B2:
+        - 3
+      S4B0:
+        - 3
+        - 5
+        - 7
+      S4B1:
+        - 3
+        - 5
+        - 7
+      S4B2:
+        - 3
+        - 5
+        - 7
+      S5B0:
+        - 3
+      S5B1:
+        - 3
+      S5B2:
+        - 3
+  head:
+    type: linear
+    drop_rate: 0.0

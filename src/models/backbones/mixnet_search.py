@@ -1,4 +1,4 @@
-"""Configurable MixNet-S MixConv placement search backbone."""
+"""可配置的 MixNet-S MixConv 位置搜索 backbone。"""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ ALL_BLOCKS = (
     "S5B0", "S5B1", "S5B2",
 )
 
+# S0-S5 对应我们实验里说的六个 stage，每个 stage 下列出实际替换的 timm block。
 STAGE_BLOCKS = {
     "S0": ("S0B0",),
     "S1": ("S1B0", "S1B1"),
@@ -31,6 +32,7 @@ STAGE_BLOCKS = {
     "S5": ("S5B0", "S5B1", "S5B2"),
 }
 
+# placement 是 YAML 里的结构搜索开关，用来决定哪些 block 替换成多核 MixConv。
 PLACEMENTS = {
     "NONE": (),
     "ALL": ALL_BLOCKS,
@@ -278,7 +280,7 @@ def parse_block_name(block_name: str) -> tuple[int, int]:
 
 @BACKBONES.register("mixnet_s_search")
 class MixNetSSearchBackbone(nn.Module):
-    """MixNet-S backbone with block-level MixConv placement and scale gates."""
+    """MixNet-S 结构搜索 backbone：按 block 替换 MixConv，并可选门控。"""
 
     def __init__(
         self,

@@ -2,7 +2,7 @@
 
 这个文件夹保存从 `temp/supcon_margin_bruteforce/configs` 中抽出的高分配置，原始 temp 内容未删除。
 
-运行入口使用：
+这些配置保留在固定目录中；如果要重新跑这一批，需要先把 `tools/train_batch_01234.py` 的 `CONFIG_LIST` 指回本目录。此前使用的运行入口是：
 
 ```powershell
 python tools\train_batch_01234.py

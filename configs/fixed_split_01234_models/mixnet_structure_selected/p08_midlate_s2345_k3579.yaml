@@ -1,0 +1,23 @@
+﻿# 从 temp/mixnet_structure_search 抽出的 MixNet-S 结构搜索有效模型。
+# 中文说明：在 S2、S3、S4、S5 使用 MixConv，核集合 K3579。
+# 公共训练变量由 configs/fixed_split_01234_BaSic_grid30_408_train.yaml 统一提供；本文件只覆盖模型结构。
+name: p08_midlate_s2345_k3579
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_search
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    placement: MIDLATE_S2345
+    kernel_sizes:
+      - 3
+      - 5
+      - 7
+      - 9
+    gate_type: none
+    gate_reduction: 4
+  head:
+    type: linear
+    drop_rate: 0.0

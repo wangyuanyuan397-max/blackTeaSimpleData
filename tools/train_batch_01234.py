@@ -23,45 +23,24 @@ spec.loader.exec_module(train_batch_base)
 # 01234 五分类 BaSiC 预处理 + 固定网格 30 patch、408×408 输入专用公共配置。
 train_batch_base.COMMON_CONFIG = Path('configs/fixed_split_01234_BaSic_grid30_408_train.yaml')
 
-# 本次队列：把 temp 里效果较好的 SupCon + Margin 配置抽到固定目录后复验。
-# 公共数据集、epoch、batch、scheduler、权重清理策略都继承 01234 BaSiC/grid30/408 公共配置。
+# 本次队列：把 temp 里效果较好的 MixNet-S 结构搜索配置抽到固定目录后复验。
+# 公共数据集、epoch、batch、optimizer、scheduler、loss 和权重清理策略都继承 01234 BaSiC/grid30/408 公共配置。
 train_batch_base.CONFIG_LIST = (
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p1_s64_t0p1_ls0_lr0p001_p128_projected.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p05_s30_t0p1_ls1_lr0p0003_p128_projected.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p05_s30_t0p05_ls1_lr0p0003_p128_projected.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0_s30_t0p1_ls1_lr0p0003_p128_projected.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p1_s64_t0p05_ls0p5_lr0p0003_p128_projected.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p15_s30_t0p05_ls1_lr0p0003_p128_projected.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p15_s30_t0p1_ls1_lr0p0003_p128_projected.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p1_s30_t0p05_ls0p5_lr0p0003_p128_projected.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p15_s64_t0p1_ls0p5_lr0p001_p128_raw.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p05_s30_t0p05_ls0p5_lr0p0003_p128_projected.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p15_s64_t0p1_ls1_lr0p0003_p128_projected.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p1_s30_t0p05_ls0p5_lr0p001_p128_projected.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p1_s64_t0p05_ls1_lr0p0003_p128_projected.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p15_s64_t0p1_ls0p5_lr0p001_p128_projected.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p1_s30_t0p1_ls0p5_lr0p0003_p128_projected.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p1_s30_t0p1_ls1_lr0p0003_p128_projected.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0_s30_t0p1_ls0_lr0p001_p128_projected.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0_s30_t0p1_ls0p5_lr0p0003_p128_projected.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0_s30_t0p1_ls0p5_lr0p001_p128_projected.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0_s30_t0p05_ls1_lr0p0003_p128_projected.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0_s30_t0p05_ls0p5_lr0p0003_p128_raw.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0_s64_t0p05_ls1_lr0p0003_p128_projected.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p05_s30_t0p05_ls0p5_lr0p001_p128_projected.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p05_s64_t0p05_ls1_lr0p0003_p128_raw.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p05_s64_t0p1_ls0_lr0p001_p128_projected.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p15_s30_t0p05_ls0p5_lr0p001_p128_projected.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p1_s64_t0p05_ls1_lr0p001_p128_projected.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p05_s30_t0p1_ls1_lr0p001_p128_projected.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0_s30_t0p1_ls0p5_lr0p0003_p128_raw.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0_s64_t0p1_ls0_lr0p001_p128_projected.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p05_s64_t0p1_ls0p5_lr0p001_p128_projected.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p15_s30_t0p1_ls0p5_lr0p001_p128_projected.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p15_s64_t0p1_ls0_lr0p001_p128_projected.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/baseline_mixnet_s_ce_seed2026.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p1_s64_t0p1_ls0p5_lr0p001_p128_projected.yaml'),
-    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p1_s64_t0p1_ls1_lr0p0003_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/mixnet_structure_selected/stagemask_001101_k357.yaml'),
+    Path('configs/fixed_split_01234_models/mixnet_structure_selected/10_p10_only_s0_k357.yaml'),
+    Path('configs/fixed_split_01234_models/mixnet_structure_selected/stagemask_000101_k357.yaml'),
+    Path('configs/fixed_split_01234_models/mixnet_structure_selected/p03_stride2_k357_g3_softmax.yaml'),
+    Path('configs/fixed_split_01234_models/mixnet_structure_selected/stagemask_001001_k357.yaml'),
+    Path('configs/fixed_split_01234_models/mixnet_structure_selected/13_p13_only_s3_k357.yaml'),
+    Path('configs/fixed_split_01234_models/mixnet_structure_selected/stagemask_011010_k357.yaml'),
+    Path('configs/fixed_split_01234_models/mixnet_structure_selected/12_p12_only_s2_k357.yaml'),
+    Path('configs/fixed_split_01234_models/mixnet_structure_selected/09_p09_late_s345_k357.yaml'),
+    Path('configs/fixed_split_01234_models/mixnet_structure_selected/stagemask_111101_k357.yaml'),
+    Path('configs/fixed_split_01234_models/mixnet_structure_selected/p08_midlate_s2345_k3579.yaml'),
+    Path('configs/fixed_split_01234_models/mixnet_structure_selected/p03_stride2_k3579.yaml'),
+    Path('configs/fixed_split_01234_models/mixnet_structure_selected/16_p16_first_block_k357.yaml'),
+    Path('configs/fixed_split_01234_models/mixnet_structure_selected/stagemask_111100_k357.yaml'),
+    Path('configs/fixed_split_01234_models/mixnet_structure_selected/p07_last2_s45_k35.yaml'),
 )
 
 # PyCharm 右键运行默认设置；也可以继续用命令行参数覆盖。
