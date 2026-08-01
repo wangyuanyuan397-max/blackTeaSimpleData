@@ -23,20 +23,45 @@ spec.loader.exec_module(train_batch_base)
 # 01234 五分类 BaSiC 预处理 + 固定网格 30 patch、408×408 输入专用公共配置。
 train_batch_base.COMMON_CONFIG = Path('configs/fixed_split_01234_BaSic_grid30_408_train.yaml')
 
-# 本次只保留 4 个代表模型，每个模型跑 3 个随机种子：2026、3407、42。
+# 本次队列：把 temp 里效果较好的 SupCon + Margin 配置抽到固定目录后复验。
+# 公共数据集、epoch、batch、scheduler、权重清理策略都继承 01234 BaSiC/grid30/408 公共配置。
 train_batch_base.CONFIG_LIST = (
-    # Path('configs/fixed_split_01234_models/fixed_timm_mixnet_s_seed2026.yaml'),
-    Path('configs/fixed_split_01234_models/fixed_timm_mixnet_s_seed3407.yaml'),
-    Path('configs/fixed_split_01234_models/fixed_timm_mixnet_s_seed42.yaml'),
-    # Path('configs/fixed_split_01234_models/fixed_efficientnet_b0_seed2026.yaml'),
-    Path('configs/fixed_split_01234_models/fixed_efficientnet_b0_seed3407.yaml'),
-    Path('configs/fixed_split_01234_models/fixed_efficientnet_b0_seed42.yaml'),
-    # Path('configs/fixed_split_01234_models/fixed_timm_mobilevit_xs_seed2026.yaml'),
-    Path('configs/fixed_split_01234_models/fixed_timm_mobilevit_xs_seed3407.yaml'),
-    Path('configs/fixed_split_01234_models/fixed_timm_mobilevit_xs_seed42.yaml'),
-    # Path('configs/fixed_split_01234_models/fixed_timm_ghostnet_100_seed2026.yaml'),
-    Path('configs/fixed_split_01234_models/fixed_timm_ghostnet_100_seed3407.yaml'),
-    Path('configs/fixed_split_01234_models/fixed_timm_ghostnet_100_seed42.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p1_s64_t0p1_ls0_lr0p001_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p05_s30_t0p1_ls1_lr0p0003_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p05_s30_t0p05_ls1_lr0p0003_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0_s30_t0p1_ls1_lr0p0003_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p1_s64_t0p05_ls0p5_lr0p0003_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p15_s30_t0p05_ls1_lr0p0003_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p15_s30_t0p1_ls1_lr0p0003_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p1_s30_t0p05_ls0p5_lr0p0003_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p15_s64_t0p1_ls0p5_lr0p001_p128_raw.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p05_s30_t0p05_ls0p5_lr0p0003_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p15_s64_t0p1_ls1_lr0p0003_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p1_s30_t0p05_ls0p5_lr0p001_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p1_s64_t0p05_ls1_lr0p0003_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p15_s64_t0p1_ls0p5_lr0p001_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p1_s30_t0p1_ls0p5_lr0p0003_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p1_s30_t0p1_ls1_lr0p0003_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0_s30_t0p1_ls0_lr0p001_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0_s30_t0p1_ls0p5_lr0p0003_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0_s30_t0p1_ls0p5_lr0p001_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0_s30_t0p05_ls1_lr0p0003_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0_s30_t0p05_ls0p5_lr0p0003_p128_raw.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0_s64_t0p05_ls1_lr0p0003_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p05_s30_t0p05_ls0p5_lr0p001_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p05_s64_t0p05_ls1_lr0p0003_p128_raw.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p05_s64_t0p1_ls0_lr0p001_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p15_s30_t0p05_ls0p5_lr0p001_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p1_s64_t0p05_ls1_lr0p001_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p05_s30_t0p1_ls1_lr0p001_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0_s30_t0p1_ls0p5_lr0p0003_p128_raw.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0_s64_t0p1_ls0_lr0p001_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p05_s64_t0p1_ls0p5_lr0p001_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p15_s30_t0p1_ls0p5_lr0p001_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p15_s64_t0p1_ls0_lr0p001_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/baseline_mixnet_s_ce_seed2026.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p1_s64_t0p1_ls0p5_lr0p001_p128_projected.yaml'),
+    Path('configs/fixed_split_01234_models/supcon_margin_selected/supm_mixnet_s_m0p1_s64_t0p1_ls1_lr0p0003_p128_projected.yaml'),
 )
 
 # PyCharm 右键运行默认设置；也可以继续用命令行参数覆盖。
@@ -48,6 +73,9 @@ train_batch_base.PYCHARM_KEEP_PTH_FILES = False
 
 def main() -> None:
     """进入原 train_batch.py 的主流程，只是换成 01234 专用配置列表。"""
+    # 这批复验明确不长期保留权重，防止命令行误传 --keep-pth 覆盖公共配置。
+    if any(arg in {'--keep-pth', '--keep-pth-files'} for arg in sys.argv[1:]):
+        raise SystemExit('本批 01234 复验不保存 .pth 权重文件，请不要传 --keep-pth。')
     train_batch_base.main()
 
 

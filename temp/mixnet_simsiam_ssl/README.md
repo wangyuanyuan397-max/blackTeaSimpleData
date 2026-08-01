@@ -1,55 +1,55 @@
-# MixNet-S SimSiam SSL Experiment
+# MixNet-S SimSiam 自监督实验
 
-This temporary experiment targets:
+这个临时实验面向：
 
-- dataset: `datasets_01234_BaSic`
-- classes: `00`, `10`, `20`, `30`, `40`
-- backbone: `timm` model `mixnet_s`
-- stage 1: unlabeled SimSiam self-supervised pretraining
-- stage 2: supervised five-class finetuning from the SSL backbone
+- 数据集：`datasets_01234_BaSic`
+- 类别：`00`、`10`、`20`、`30`、`40`
+- backbone：`timm` 模型 `mixnet_s`
+- 第 1 阶段：不使用标签的 SimSiam 自监督预训练
+- 第 2 阶段：加载自监督 backbone 后进行有监督五分类微调
 
-All new code lives in this folder and writes run artifacts under
-`temp/mixnet_simsiam_ssl/runs/`.
+所有新增代码都放在当前文件夹中，运行产物会写到
+`temp/mixnet_simsiam_ssl/runs/`。
 
-## 1. Pretrain Without Labels
+## 1. 无标签预训练
 
-Default command. It uses only `datasets_01234_BaSic/train` as unlabeled images,
-so validation/test images are not seen before evaluation.
+默认命令。它只把 `datasets_01234_BaSic/train` 作为无标签图片使用，
+因此验证集和测试集图片不会在正式评估前被模型看到。
 
 ```powershell
 python temp\mixnet_simsiam_ssl\train_simsiam_pretrain.py
 ```
 
-The main output is:
+主要输出是：
 
 ```text
 temp/mixnet_simsiam_ssl/runs/simsiam_mixnet_s_basic408/mixnet_s_simsiam_backbone.pth
 ```
 
-If GPU memory is tight, use smaller batches:
+如果显存紧张，可以减小 batch size：
 
 ```powershell
 python temp\mixnet_simsiam_ssl\train_simsiam_pretrain.py --batch-size 8
 ```
 
-If you explicitly want to use all splits as unlabeled images for SSL:
+如果你明确希望把所有划分都作为无标签图片用于 SSL：
 
 ```powershell
 python temp\mixnet_simsiam_ssl\train_simsiam_pretrain.py --ssl-splits train val test
 ```
 
-That can improve representation learning, but it is a transductive setting
-because the test images are seen without labels.
+这样可能提升表征学习效果，但它属于 transductive 设置，
+因为测试图片虽然没有标签，但已经在自监督阶段被模型看过。
 
-## 2. Finetune With Labels
+## 2. 有标签微调
 
-Run after the SSL checkpoint exists:
+等 SSL checkpoint 存在后再运行：
 
 ```powershell
 python temp\mixnet_simsiam_ssl\finetune_mixnet_classifier.py
 ```
 
-Important outputs:
+重要输出：
 
 ```text
 temp/mixnet_simsiam_ssl/runs/finetune_mixnet_s_basic408/best_model.pth
@@ -57,77 +57,75 @@ temp/mixnet_simsiam_ssl/runs/finetune_mixnet_s_basic408/summary.json
 temp/mixnet_simsiam_ssl/runs/finetune_mixnet_s_basic408/history.csv
 ```
 
-`summary.json` contains best validation metrics and final test metrics.
+`summary.json` 包含最佳验证集指标和最终测试集指标。
 
-## 3. Finetune Tuning Sweep
+## 3. 微调调参搜索
 
-Your current SSL run looks more underfit than overfit: train and validation
-accuracy are both around 0.60. The first tuning pass therefore keeps the SSL
-checkpoint fixed and relaxes the supervised finetuning stage:
+你当前的 SSL 结果更像欠拟合，而不是过拟合：训练集和验证集准确率都在
+0.60 左右。因此第一轮调参固定 SSL checkpoint，只放宽有监督微调阶段：
 
-- weaker train augmentation: `resize_flip` or milder crop
-- lower weight decay
-- higher AdamW learning rate
-- optionally faster classifier-head learning rate
-- optional checkpoint selection by `val_qwk` for the ordinal task
+- 更弱的训练增强：`resize_flip` 或更温和的 crop
+- 更低的 weight decay
+- 更高的 AdamW 学习率
+- 可选：给分类头使用更快的学习率
+- 可选：针对有序任务使用 `val_qwk` 选择 checkpoint
 
-List recommended variants:
+列出推荐变体：
 
 ```powershell
 python temp\mixnet_simsiam_ssl\run_finetune_sweep.py --list
 ```
 
-Preview commands without running:
+只预览命令，不实际运行：
 
 ```powershell
 python temp\mixnet_simsiam_ssl\run_finetune_sweep.py --dry-run --exclude-sgd
 ```
 
-Run the recommended AdamW variants first:
+优先运行推荐的 AdamW 变体：
 
 ```powershell
 python temp\mixnet_simsiam_ssl\run_finetune_sweep.py --exclude-sgd
 ```
 
-Run one selected variant:
+运行某一个指定变体：
 
 ```powershell
 python temp\mixnet_simsiam_ssl\run_finetune_sweep.py --variant resize_lr3e4_wd1e4_acc
 ```
 
-The sweep writes:
+搜索结果会写到：
 
 ```text
 temp/mixnet_simsiam_ssl/runs/tuning/sweep_results.csv
 ```
 
-Each variant also has its own `summary.json`, `history.csv`, and
-`best_model.pth` under `temp/mixnet_simsiam_ssl/runs/tuning/{variant_name}/`.
+每个变体也会在 `temp/mixnet_simsiam_ssl/runs/tuning/{variant_name}/`
+下面生成自己的 `summary.json`、`history.csv` 和 `best_model.pth`。
 
-## Fast Smoke Checks
+## 快速冒烟检查
 
-These commands only check that the pipeline can instantiate models and batches:
+下面这些命令只检查流程能否正确实例化模型和 batch：
 
 ```powershell
 python temp\mixnet_simsiam_ssl\train_simsiam_pretrain.py --dry-run --image-size 224 --batch-size 4 --num-workers 0 --max-samples 8
 ```
 
-For finetune smoke testing without a real SSL checkpoint:
+如果没有真实 SSL checkpoint，也可以这样做微调冒烟测试：
 
 ```powershell
 python temp\mixnet_simsiam_ssl\finetune_mixnet_classifier.py --dry-run --ssl-checkpoint none --image-size 224 --batch-size 4 --eval-batch-size 8 --num-workers 0 --max-samples 20
 ```
 
-## Notes
+## 备注
 
-- Default `image_size=408` matches the current BaSiC/grid30 MixNet baseline.
-- The SSL script does not require `lightly`; SimSiam loss and heads are implemented
-  directly in PyTorch.
-- Windows multiprocessing requires pickle-safe dataloader worker helpers. The
-  scripts support `--num-workers 4`; if your local machine still has worker
-  startup trouble, pass `--num-workers 0` to run single-process loading.
-- By default SSL starts from random MixNet-S weights. Add `--imagenet-pretrained`
-  if you want ImageNet initialization before SSL.
-- Finetuning defaults to AdamW with `lr=1e-4`, aligned with the existing BaSiC
-  baseline config. Use `--optimizer sgd --lr 0.001` to try the SGD style from
-  the pasted sketch.
+- 默认 `image_size=408`，与当前 BaSiC/grid30 MixNet baseline 保持一致。
+- SSL 脚本不依赖 `lightly`；SimSiam loss 和 head 都是直接用 PyTorch 实现的。
+- Windows 多进程要求 dataloader worker helper 可以被 pickle。脚本支持
+  `--num-workers 4`；如果本机 worker 启动仍有问题，可以传
+  `--num-workers 0` 改成单进程加载。
+- 默认 SSL 从随机初始化的 MixNet-S 权重开始。如果希望 SSL 前先加载
+  ImageNet 初始化，可以加 `--imagenet-pretrained`。
+- 微调默认使用 AdamW，`lr=1e-4`，与现有 BaSiC baseline 配置对齐。
+  如果想尝试粘贴方案里的 SGD 风格，可以使用
+  `--optimizer sgd --lr 0.001`。
