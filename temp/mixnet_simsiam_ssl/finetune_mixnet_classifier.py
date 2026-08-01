@@ -13,7 +13,6 @@ from torch.amp import GradScaler, autocast
 from torch.utils.data import DataLoader
 
 from common import (
-    PROJECT_ROOT,
     ImageFolderDataset,
     TimmClassifier,
     build_eval_transform,
@@ -328,12 +327,12 @@ def main() -> None:
         ssl_path = resolve_project_path(args.ssl_checkpoint)
         if not ssl_path.is_file():
             raise FileNotFoundError(
-                f"SSL checkpoint not found: {ssl_path}. Run train_simsiam_pretrain.py first "
+                f"SSL checkpoint not found: {args.ssl_checkpoint}. Run train_simsiam_pretrain.py first "
                 "or pass --ssl-checkpoint none."
             )
         missing, unexpected = load_backbone_checkpoint(model.backbone, ssl_path, strict=False)
         ssl_load_info = {
-            "path": str(ssl_path),
+            "path": args.ssl_checkpoint,
             "missing_keys": missing,
             "unexpected_keys": unexpected,
         }
@@ -356,8 +355,7 @@ def main() -> None:
     use_amp = bool(args.amp and device.type == "cuda")
     scaler = GradScaler("cuda", enabled=use_amp)
 
-    print(f"Project root: {PROJECT_ROOT}")
-    print(f"Dataset root: {dataset_root}")
+    print(f"Dataset root: {args.dataset_root}")
     print(f"Classes: {train_dataset.classes}")
     print(
         f"Train/val/test images: {len(train_dataset)}/"
@@ -371,7 +369,7 @@ def main() -> None:
         f"head_lr={args.lr * args.head_lr_mult:g} wd={args.weight_decay:g} "
         f"select={args.selection_metric}"
     )
-    print(f"Output: {output_dir}")
+    print(f"Output: {args.output_dir}")
     if ssl_load_info and ssl_load_info["missing_keys"]:
         print(f"SSL load missing keys: {len(ssl_load_info['missing_keys'])}")
 

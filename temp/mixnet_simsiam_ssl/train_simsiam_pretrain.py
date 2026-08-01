@@ -11,7 +11,6 @@ from torch.amp import GradScaler, autocast
 from torch.utils.data import DataLoader
 
 from common import (
-    PROJECT_ROOT,
     SimSiamModel,
     TwoViewImageDataset,
     build_optimizer,
@@ -179,11 +178,11 @@ def main() -> None:
     use_amp = bool(args.amp and device.type == "cuda")
     scaler = GradScaler("cuda", enabled=use_amp)
 
-    print(f"Project root: {PROJECT_ROOT}")
-    print(f"SSL image roots: {[str(root) for root in ssl_roots]}")
+    print(f"Dataset root: {args.dataset_root}")
+    print(f"SSL splits: {args.ssl_splits}")
     print(f"Images: {len(dataset)} | batches/epoch: {len(loader)}")
     print(f"Device: {device} | model: {args.model_name} | image_size: {args.image_size}")
-    print(f"Output: {output_dir}")
+    print(f"Output: {args.output_dir}")
 
     history: list[dict] = []
     start_time = time.time()
@@ -265,7 +264,7 @@ def main() -> None:
         final_backbone_path,
     )
     save_checkpoint(output_dir, "final_checkpoint.pth", model, optimizer, scheduler, args.epochs - 1, args, history)
-    print(f"Saved backbone weights: {final_backbone_path}")
+    print(f"Saved backbone weights: {(Path(args.output_dir) / final_backbone_path.name).as_posix()}")
 
 
 if __name__ == "__main__":

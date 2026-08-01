@@ -24,18 +24,14 @@ from torch.utils.data import Dataset
 from torchvision import transforms as T
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
 IMAGE_EXTENSIONS = {".bmp", ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp"}
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
 
 
 def resolve_project_path(path: str | Path) -> Path:
-    """Resolve relative paths from the repository root."""
-    resolved = Path(path).expanduser()
-    if not resolved.is_absolute():
-        resolved = PROJECT_ROOT / resolved
-    return resolved.resolve()
+    """Keep relative paths relative to the current project working directory."""
+    return Path(path).expanduser()
 
 
 def seed_everything(seed: int) -> None:
@@ -72,7 +68,7 @@ def list_image_files(roots: Iterable[str | Path]) -> list[Path]:
         if not resolved_root.is_dir():
             raise FileNotFoundError(f"Image root does not exist: {resolved_root}")
         image_paths.extend(
-            path.resolve()
+            path
             for path in resolved_root.rglob("*")
             if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
         )
@@ -137,7 +133,7 @@ class ImageFolderDataset(Dataset):
             class_dir = self.root / class_name
             label = self.class_to_idx[class_name]
             class_images = sorted(
-                path.resolve()
+                path
                 for path in class_dir.rglob("*")
                 if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
             )

@@ -11,12 +11,10 @@ import argparse
 import csv
 import json
 import subprocess
-import sys
 from pathlib import Path
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-FINETUNE_SCRIPT = PROJECT_ROOT / "temp" / "mixnet_simsiam_ssl" / "finetune_mixnet_classifier.py"
+FINETUNE_SCRIPT = Path("temp") / "mixnet_simsiam_ssl" / "finetune_mixnet_classifier.py"
 
 
 VARIANTS = [
@@ -117,7 +115,7 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument("--runs-root", default="temp/mixnet_simsiam_ssl/runs/tuning")
-    parser.add_argument("--python", default=sys.executable)
+    parser.add_argument("--python", default="python")
     parser.add_argument("--image-size", type=int, default=408)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--eval-batch-size", type=int, default=64)
@@ -150,13 +148,13 @@ def selected_variants(args: argparse.Namespace) -> list[dict]:
 
 
 def command_for_variant(args: argparse.Namespace, variant: dict) -> tuple[list[str], Path]:
-    output_dir = PROJECT_ROOT / args.runs_root / variant["name"]
+    output_dir = Path(args.runs_root) / variant["name"]
     cmd = [
         args.python,
         str(FINETUNE_SCRIPT),
         "--dataset-root", args.dataset_root,
         "--ssl-checkpoint", args.ssl_checkpoint,
-        "--output-dir", str(output_dir),
+        "--output-dir", output_dir.as_posix(),
         "--image-size", str(args.image_size),
         "--batch-size", str(args.batch_size),
         "--eval-batch-size", str(args.eval_batch_size),
@@ -265,7 +263,7 @@ def main() -> None:
             continue
 
         output_dir.mkdir(parents=True, exist_ok=True)
-        result = subprocess.run(cmd, cwd=PROJECT_ROOT)
+        result = subprocess.run(cmd)
         if result.returncode != 0:
             raise SystemExit(f"Variant failed: {variant['name']} (exit code {result.returncode})")
         summary = read_summary(output_dir, variant)
@@ -273,7 +271,7 @@ def main() -> None:
             completed.append(summary)
 
     if not args.dry_run and completed:
-        results_path = PROJECT_ROOT / args.runs_root / "sweep_results.csv"
+        results_path = Path(args.runs_root) / "sweep_results.csv"
         write_results_csv(completed, results_path)
         print_results(completed)
         print(f"\nSaved sweep summary: {results_path}")
