@@ -14,6 +14,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
+from ..optimizers import AdamNorm
 from ..schemas import TrainingConfig
 from ..utils import (
     MODELS,
@@ -165,21 +166,25 @@ class ComponentBuilder:
                 opt_cfg = vars(self.config.optimizer)
 
             opt_type = opt_cfg.pop("type")
+            opt_type_normalized = str(opt_type).lower()
             lr = opt_cfg.get("lr")  # 保存 lr 用于日志
 
             # 筛需要优化的参数
             params = [p for p in model.parameters() if p.requires_grad]
 
             # Ż͹˲
-            if opt_type.lower() == "adamw":
+            if opt_type_normalized == "adamw":
                 # AdamW ֧ momentum / nesterov None
                 valid_params = {k: v for k, v in opt_cfg.items() if k not in ["momentum", "nesterov"] and v is not None}
                 optimizer = optim.AdamW(params, **valid_params)
-            elif opt_type.lower() == "adam":
+            elif opt_type_normalized == "adam":
                 # Adam ֧ momentum / nesterov None
                 valid_params = {k: v for k, v in opt_cfg.items() if k not in ["momentum", "nesterov"] and v is not None}
                 optimizer = optim.Adam(params, **valid_params)
-            elif opt_type.lower() == "sgd":
+            elif opt_type_normalized in {"adamnorm", "adanorm"}:
+                valid_params = {k: v for k, v in opt_cfg.items() if k not in ["momentum", "nesterov"] and v is not None}
+                optimizer = AdamNorm(params, **valid_params)
+            elif opt_type_normalized == "sgd":
                 # SGD  None
                 valid_params = {k: v for k, v in opt_cfg.items() if v is not None}
                 optimizer = optim.SGD(params, **valid_params)
