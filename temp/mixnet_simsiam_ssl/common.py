@@ -191,13 +191,28 @@ def build_finetune_train_transform(
     image_size: int,
     crop_min: float = 0.85,
     jitter_strength: float = 0.08,
+    mode: str = "crop",
 ) -> T.Compose:
     """Build label-preserving train-time augmentation for five-class finetuning."""
-    return T.Compose(
-        [
+    normalized_mode = str(mode).lower()
+    transforms: list[Any]
+    if normalized_mode == "crop":
+        transforms = [
             T.RandomResizedCrop(image_size, scale=(crop_min, 1.0), ratio=(0.9, 1.1)),
             T.RandomHorizontalFlip(p=0.5),
             T.RandomVerticalFlip(p=0.5),
+        ]
+    elif normalized_mode in {"resize", "resize_flip"}:
+        transforms = [
+            T.Resize((image_size, image_size)),
+            T.RandomHorizontalFlip(p=0.5),
+            T.RandomVerticalFlip(p=0.5),
+        ]
+    else:
+        raise ValueError(f"Unsupported finetune transform mode: {mode}")
+
+    if jitter_strength > 0:
+        transforms.append(
             T.RandomApply(
                 [
                     T.ColorJitter(
@@ -208,11 +223,15 @@ def build_finetune_train_transform(
                     )
                 ],
                 p=0.35,
-            ),
+            )
+        )
+    transforms.extend(
+        [
             T.ToTensor(),
             T.Normalize(IMAGENET_MEAN, IMAGENET_STD),
         ]
     )
+    return T.Compose(transforms)
 
 
 def build_eval_transform(image_size: int) -> T.Compose:

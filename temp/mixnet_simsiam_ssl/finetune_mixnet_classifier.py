@@ -45,12 +45,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--weight-decay", type=float, default=5e-4)
     parser.add_argument("--momentum", type=float, default=0.9)
+    parser.add_argument("--backbone-lr-mult", type=float, default=1.0)
+    parser.add_argument("--head-lr-mult", type=float, default=1.0)
     parser.add_argument("--warmup-epochs", type=int, default=2)
     parser.add_argument("--min-lr-ratio", type=float, default=0.01)
     parser.add_argument("--drop-rate", type=float, default=0.0)
     parser.add_argument("--label-smoothing", type=float, default=0.0)
+    parser.add_argument("--train-transform-mode", choices=["crop", "resize", "resize_flip"], default="crop")
     parser.add_argument("--train-crop-min", type=float, default=0.85)
     parser.add_argument("--train-jitter-strength", type=float, default=0.08)
+    parser.add_argument(
+        "--selection-metric",
+        choices=["val_acc", "val_qwk", "val_macro_f1", "val_loss"],
+        default="val_acc",
+        help="Metric used to save best_model.pth and trigger patience.",
+    )
     parser.add_argument("--seed", type=int, default=2026)
     parser.add_argument("--patience", type=int, default=15)
     parser.add_argument("--max-samples", type=int, default=0)
@@ -218,6 +227,38 @@ def should_use_ssl_checkpoint(value: str) -> bool:
     return str(value).strip().lower() not in {"", "none", "null", "false", "0"}
 
 
+def build_finetune_param_groups(model: TimmClassifier, args: argparse.Namespace):
+    """Build optional differential-learning-rate parameter groups."""
+    backbone_lr = args.lr * float(args.backbone_lr_mult)
+    head_lr = args.lr * float(args.head_lr_mult)
+    return [
+        {"params": model.backbone.parameters(), "lr": backbone_lr, "group_name": "backbone"},
+        {"params": model.head.parameters(), "lr": head_lr, "group_name": "head"},
+    ]
+
+
+def selection_value(metric_name: str, val_metrics: dict[str, Any]) -> float:
+    if metric_name == "val_acc":
+        return float(val_metrics["accuracy"])
+    if metric_name == "val_qwk":
+        return float(val_metrics["qwk"])
+    if metric_name == "val_macro_f1":
+        return float(val_metrics["macro_f1"])
+    if metric_name == "val_loss":
+        return float(val_metrics["loss"])
+    raise ValueError(f"Unsupported selection metric: {metric_name}")
+
+
+def is_better_selection(metric_name: str, value: float, best_value: float) -> bool:
+    if metric_name == "val_loss":
+        return value < best_value
+    return value > best_value
+
+
+def initial_best_selection(metric_name: str) -> float:
+    return float("inf") if metric_name == "val_loss" else float("-inf")
+
+
 def main() -> None:
     args = parse_args()
     seed_everything(args.seed)
@@ -232,6 +273,7 @@ def main() -> None:
         image_size=args.image_size,
         crop_min=args.train_crop_min,
         jitter_strength=args.train_jitter_strength,
+        mode=args.train_transform_mode,
     )
     eval_transform = build_eval_transform(args.image_size)
     train_dataset = ImageFolderDataset(dataset_root / "train", transform=train_transform)
@@ -299,7 +341,7 @@ def main() -> None:
     model.to(device)
     criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
     optimizer = build_optimizer(
-        model.parameters(),
+        build_finetune_param_groups(model, args),
         optimizer_name=args.optimizer,
         lr=args.lr,
         weight_decay=args.weight_decay,
@@ -323,12 +365,18 @@ def main() -> None:
     )
     print(f"Device: {device} | model: {args.model_name} | image_size: {args.image_size}")
     print(f"SSL init: {ssl_load_info['path'] if ssl_load_info else 'none'}")
+    print(
+        f"Finetune: transform={args.train_transform_mode} lr={args.lr:g} "
+        f"backbone_lr={args.lr * args.backbone_lr_mult:g} "
+        f"head_lr={args.lr * args.head_lr_mult:g} wd={args.weight_decay:g} "
+        f"select={args.selection_metric}"
+    )
     print(f"Output: {output_dir}")
     if ssl_load_info and ssl_load_info["missing_keys"]:
         print(f"SSL load missing keys: {len(ssl_load_info['missing_keys'])}")
 
     history: list[dict[str, Any]] = []
-    best_val_acc = -1.0
+    best_selection = initial_best_selection(args.selection_metric)
     best_epoch = -1
     epochs_without_improvement = 0
     start_time = time.time()
@@ -354,10 +402,10 @@ def main() -> None:
             num_classes=len(train_dataset.classes),
         )
 
-        val_acc = float(val_metrics["accuracy"])
-        improved = val_acc > best_val_acc
+        selected_value = selection_value(args.selection_metric, val_metrics)
+        improved = is_better_selection(args.selection_metric, selected_value, best_selection)
         if improved:
-            best_val_acc = val_acc
+            best_selection = selected_value
             best_epoch = epoch
             epochs_without_improvement = 0
             if not args.dry_run:
@@ -376,7 +424,8 @@ def main() -> None:
 
         row = {
             "epoch": epoch + 1,
-            "lr": float(optimizer.param_groups[0]["lr"]),
+            "backbone_lr": float(optimizer.param_groups[0]["lr"]),
+            "head_lr": float(optimizer.param_groups[1]["lr"]),
             "train_loss": train_metrics["loss"],
             "train_acc": train_metrics["accuracy"],
             "train_macro_f1": train_metrics["macro_f1"],
@@ -385,6 +434,8 @@ def main() -> None:
             "val_macro_f1": val_metrics["macro_f1"],
             "val_mae": val_metrics["mae"],
             "val_qwk": val_metrics["qwk"],
+            "selection_metric": args.selection_metric,
+            "selection_value": selected_value,
             "seconds": time.time() - epoch_start,
             "is_best": improved,
         }
@@ -394,7 +445,7 @@ def main() -> None:
             f"train_acc={train_metrics['accuracy']:.4f} "
             f"val_acc={val_metrics['accuracy']:.4f} "
             f"val_qwk={val_metrics['qwk']:.4f} "
-            f"best={best_val_acc:.4f}@{best_epoch + 1}"
+            f"best_{args.selection_metric}={best_selection:.4f}@{best_epoch + 1}"
         )
 
         if args.dry_run:
@@ -429,6 +480,8 @@ def main() -> None:
     )
     summary = {
         "best_epoch": int(best_checkpoint["epoch"]) + 1,
+        "selection_metric": args.selection_metric,
+        "best_selection_value": selection_value(args.selection_metric, best_checkpoint["val_metrics"]),
         "best_val_metrics": best_checkpoint["val_metrics"],
         "test_metrics": test_metrics,
         "classes": train_dataset.classes,
@@ -439,6 +492,7 @@ def main() -> None:
     save_json(test_metrics["confusion_matrix"], output_dir / "test_confusion_matrix.json")
     print(
         f"Done. best_epoch={summary['best_epoch']} "
+        f"best_{args.selection_metric}={summary['best_selection_value']:.4f} "
         f"best_val_acc={summary['best_val_metrics']['accuracy']:.4f} "
         f"test_acc={test_metrics['accuracy']:.4f} test_qwk={test_metrics['qwk']:.4f}"
     )

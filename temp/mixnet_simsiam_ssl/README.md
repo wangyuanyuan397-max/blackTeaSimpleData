@@ -59,6 +59,51 @@ temp/mixnet_simsiam_ssl/runs/finetune_mixnet_s_basic408/history.csv
 
 `summary.json` contains best validation metrics and final test metrics.
 
+## 3. Finetune Tuning Sweep
+
+Your current SSL run looks more underfit than overfit: train and validation
+accuracy are both around 0.60. The first tuning pass therefore keeps the SSL
+checkpoint fixed and relaxes the supervised finetuning stage:
+
+- weaker train augmentation: `resize_flip` or milder crop
+- lower weight decay
+- higher AdamW learning rate
+- optionally faster classifier-head learning rate
+- optional checkpoint selection by `val_qwk` for the ordinal task
+
+List recommended variants:
+
+```powershell
+python temp\mixnet_simsiam_ssl\run_finetune_sweep.py --list
+```
+
+Preview commands without running:
+
+```powershell
+python temp\mixnet_simsiam_ssl\run_finetune_sweep.py --dry-run --exclude-sgd
+```
+
+Run the recommended AdamW variants first:
+
+```powershell
+python temp\mixnet_simsiam_ssl\run_finetune_sweep.py --exclude-sgd
+```
+
+Run one selected variant:
+
+```powershell
+python temp\mixnet_simsiam_ssl\run_finetune_sweep.py --variant resize_lr3e4_wd1e4_acc
+```
+
+The sweep writes:
+
+```text
+temp/mixnet_simsiam_ssl/runs/tuning/sweep_results.csv
+```
+
+Each variant also has its own `summary.json`, `history.csv`, and
+`best_model.pth` under `temp/mixnet_simsiam_ssl/runs/tuning/{variant_name}/`.
+
 ## Fast Smoke Checks
 
 These commands only check that the pipeline can instantiate models and batches:
