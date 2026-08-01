@@ -1,0 +1,50 @@
+experiment_name: finevad_mixnet_s_progressive_01234_basic
+dataset_root: datasets_01234_BaSic
+runs_root: temp/finevad_mixnet_progressive/runs_BaSic
+random_seed: 2026
+
+class_to_idx:
+  "00": 0
+  "10": 1
+  "20": 2
+  "30": 3
+  "40": 4
+
+model:
+  backbone_name: mixnet_s
+  pretrained: true
+  dropout: 0.2
+  projection_dim: 128
+
+data:
+  image_size: 408
+  color_jitter: true
+  autoaugment: false
+  imagenet_mean: [0.485, 0.456, 0.406]
+  imagenet_std: [0.229, 0.224, 0.225]
+
+train:
+  batch_size: 32
+  eval_batch_size: 64
+  num_workers: 4
+  amp: true
+  stage1_epochs: 40
+  stage2_epochs: 20
+  stage3_epochs: 90
+  stage1_lr: 0.0001
+  stage2_lr: 0.0003
+  stage3_lr: 0.0001
+  weight_decay: 0.0005
+  min_lr: 0.000001
+  patience: 30
+  keep_best_pth: true
+
+loss:
+  lambda_supcon: 0.2
+  supcon_temperature: 0.1
+  stage2_consistency_weight: 1.0
+  stage2_entropy_weight: 0.01
+  sibling_penalty_weight: 2.0
+  stage3_aux_coarse_weight: 0.10
+  stage3_aux_mid_weight: 0.05
+  label_smoothing: 0.0

@@ -1,0 +1,95 @@
+{
+  "train": {
+    "total": 2250,
+    "classes": [
+      "00",
+      "10",
+      "20",
+      "30",
+      "40"
+    ],
+    "class_to_idx": {
+      "00": 0,
+      "10": 1,
+      "20": 2,
+      "30": 3,
+      "40": 4
+    },
+    "counts": {
+      "00": 450,
+      "10": 450,
+      "20": 450,
+      "30": 450,
+      "40": 450
+    },
+    "sample_shape": [
+      3,
+      408,
+      408
+    ],
+    "sample_label": 0,
+    "sample_path": "E:\\workspaces\\python\\BlackTeaSimpleData\\datasets_01234_BaSic\\train\\00\\t00__1-1__grid30_01.jpg"
+  },
+  "val": {
+    "total": 600,
+    "classes": [
+      "00",
+      "10",
+      "20",
+      "30",
+      "40"
+    ],
+    "class_to_idx": {
+      "00": 0,
+      "10": 1,
+      "20": 2,
+      "30": 3,
+      "40": 4
+    },
+    "counts": {
+      "00": 120,
+      "10": 120,
+      "20": 120,
+      "30": 120,
+      "40": 120
+    },
+    "sample_shape": [
+      3,
+      408,
+      408
+    ],
+    "sample_label": 0,
+    "sample_path": "E:\\workspaces\\python\\BlackTeaSimpleData\\datasets_01234_BaSic\\val\\00\\t00__2-4__grid30_01.jpg"
+  },
+  "test": {
+    "total": 750,
+    "classes": [
+      "00",
+      "10",
+      "20",
+      "30",
+      "40"
+    ],
+    "class_to_idx": {
+      "00": 0,
+      "10": 1,
+      "20": 2,
+      "30": 3,
+      "40": 4
+    },
+    "counts": {
+      "00": 150,
+      "10": 150,
+      "20": 150,
+      "30": 150,
+      "40": 150
+    },
+    "sample_shape": [
+      3,
+      408,
+      408
+    ],
+    "sample_label": 0,
+    "sample_path": "E:\\workspaces\\python\\BlackTeaSimpleData\\datasets_01234_BaSic\\test\\00\\t00__1-4__grid30_01.jpg"
+  }
+}
