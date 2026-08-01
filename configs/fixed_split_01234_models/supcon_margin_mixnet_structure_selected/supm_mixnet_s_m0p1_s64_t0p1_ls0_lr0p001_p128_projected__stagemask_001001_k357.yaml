@@ -1,0 +1,86 @@
+name: supm_mixnet_s_m0p1_s64_t0p1_ls0_lr0p001_p128_projected__stagemask_001001_k357
+random_seed: 2026
+data:
+  train_transform:
+    type: two_view_patch_train_224
+    image_size: 408
+model:
+  type: supcon_margin_classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_search
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    placement: ORIGINAL
+    kernel_sizes:
+    - 3
+    - 5
+    - 7
+    gate_type: none
+    gate_reduction: 4
+    kernel_plan:
+      S0B0:
+      - 3
+      S1B0:
+      - 3
+      S1B1:
+      - 3
+      S2B0:
+      - 3
+      - 5
+      - 7
+      S2B1:
+      - 3
+      - 5
+      - 7
+      S2B2:
+      - 3
+      - 5
+      - 7
+      S2B3:
+      - 3
+      - 5
+      - 7
+      S3B0:
+      - 3
+      S3B1:
+      - 3
+      S3B2:
+      - 3
+      S4B0:
+      - 3
+      S4B1:
+      - 3
+      S4B2:
+      - 3
+      S5B0:
+      - 3
+      - 5
+      - 7
+      S5B1:
+      - 3
+      - 5
+      - 7
+      S5B2:
+      - 3
+      - 5
+      - 7
+  projector:
+    hidden_features: 256
+    out_features: 128
+    drop_rate: 0.0
+  classifier_feature: projected
+  head:
+    type: cosine_margin
+    margin: 0.1
+    scale: 64
+loss:
+  type: supcon_margin
+  lambda_ce: 1.0
+  lambda_supcon: 0
+  temperature: 0.1
+optimizer:
+  lr: 0.001
+supcon_margin_source: supm_mixnet_s_m0p1_s64_t0p1_ls0_lr0p001_p128_projected
+structure_source: stagemask_001001_k357

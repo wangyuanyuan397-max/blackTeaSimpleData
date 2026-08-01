@@ -24,80 +24,128 @@ train_batch_base.COMMON_CONFIG = Path(
     "configs/fixed_split_01234_BaSic_grid30_408_train.yaml"
 )
 
-# Current queue: selected MixNet structure x deformable-attention sweep.
+# Current queue: selected SupCon/Margin x MixNet structure sweep.
 # All training hyperparameters inherit from the common 01234 BaSiC/grid30/408 config.
 train_batch_base.CONFIG_LIST = (
     Path(
-        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
-        "D11000_seed2026.yaml"
+        "configs/fixed_split_01234_models/supcon_margin_mixnet_structure_selected/"
+        "supm_mixnet_s_m0p1_s64_t0p1_ls0_lr0p001_p128_projected__"
+        "stagemask_001101_k357.yaml"
     ),
     Path(
-        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
-        "D10101_seed2026.yaml"
+        "configs/fixed_split_01234_models/supcon_margin_mixnet_structure_selected/"
+        "supm_mixnet_s_m0p1_s64_t0p1_ls0_lr0p001_p128_projected__"
+        "10_p10_only_s0_k357.yaml"
     ),
     Path(
-        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
-        "stagemask_001101_k357_D11000_seed2026.yaml"
+        "configs/fixed_split_01234_models/supcon_margin_mixnet_structure_selected/"
+        "supm_mixnet_s_m0p1_s64_t0p1_ls0_lr0p001_p128_projected__"
+        "stagemask_000101_k357.yaml"
     ),
     Path(
-        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
-        "stagemask_001101_k357_D10101_seed2026.yaml"
+        "configs/fixed_split_01234_models/supcon_margin_mixnet_structure_selected/"
+        "supm_mixnet_s_m0p1_s64_t0p1_ls0_lr0p001_p128_projected__"
+        "p03_stride2_k357_g3_softmax.yaml"
     ),
     Path(
-        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
-        "10_p10_only_s0_k357_D11000_seed2026.yaml"
+        "configs/fixed_split_01234_models/supcon_margin_mixnet_structure_selected/"
+        "supm_mixnet_s_m0p1_s64_t0p1_ls0_lr0p001_p128_projected__"
+        "stagemask_001001_k357.yaml"
     ),
     Path(
-        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
-        "10_p10_only_s0_k357_D10101_seed2026.yaml"
+        "configs/fixed_split_01234_models/supcon_margin_mixnet_structure_selected/"
+        "supm_mixnet_s_m0p1_s64_t0p1_ls0_lr0p001_p128_projected__"
+        "13_p13_only_s3_k357.yaml"
     ),
     Path(
-        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
-        "stagemask_000101_k357_D11000_seed2026.yaml"
+        "configs/fixed_split_01234_models/supcon_margin_mixnet_structure_selected/"
+        "supm_mixnet_s_m0p1_s64_t0p1_ls0_lr0p001_p128_projected__"
+        "stagemask_011010_k357.yaml"
     ),
     Path(
-        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
-        "stagemask_000101_k357_D10101_seed2026.yaml"
+        "configs/fixed_split_01234_models/supcon_margin_mixnet_structure_selected/"
+        "supm_mixnet_s_m0p1_s64_t0p1_ls0_lr0p001_p128_projected__"
+        "12_p12_only_s2_k357.yaml"
     ),
     Path(
-        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
-        "p03_stride2_k357_g3_softmax_D11000_seed2026.yaml"
+        "configs/fixed_split_01234_models/supcon_margin_mixnet_structure_selected/"
+        "supm_mixnet_s_m0p05_s30_t0p1_ls1_lr0p0003_p128_projected__"
+        "stagemask_001101_k357.yaml"
     ),
     Path(
-        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
-        "p03_stride2_k357_g3_softmax_D10101_seed2026.yaml"
+        "configs/fixed_split_01234_models/supcon_margin_mixnet_structure_selected/"
+        "supm_mixnet_s_m0p05_s30_t0p1_ls1_lr0p0003_p128_projected__"
+        "10_p10_only_s0_k357.yaml"
     ),
     Path(
-        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
-        "stagemask_001001_k357_D11000_seed2026.yaml"
+        "configs/fixed_split_01234_models/supcon_margin_mixnet_structure_selected/"
+        "supm_mixnet_s_m0p05_s30_t0p1_ls1_lr0p0003_p128_projected__"
+        "stagemask_000101_k357.yaml"
     ),
     Path(
-        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
-        "stagemask_001001_k357_D10101_seed2026.yaml"
+        "configs/fixed_split_01234_models/supcon_margin_mixnet_structure_selected/"
+        "supm_mixnet_s_m0p05_s30_t0p1_ls1_lr0p0003_p128_projected__"
+        "p03_stride2_k357_g3_softmax.yaml"
     ),
     Path(
-        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
-        "13_p13_only_s3_k357_D11000_seed2026.yaml"
+        "configs/fixed_split_01234_models/supcon_margin_mixnet_structure_selected/"
+        "supm_mixnet_s_m0p05_s30_t0p1_ls1_lr0p0003_p128_projected__"
+        "stagemask_001001_k357.yaml"
     ),
     Path(
-        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
-        "13_p13_only_s3_k357_D10101_seed2026.yaml"
+        "configs/fixed_split_01234_models/supcon_margin_mixnet_structure_selected/"
+        "supm_mixnet_s_m0p05_s30_t0p1_ls1_lr0p0003_p128_projected__"
+        "13_p13_only_s3_k357.yaml"
     ),
     Path(
-        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
-        "stagemask_011010_k357_D11000_seed2026.yaml"
+        "configs/fixed_split_01234_models/supcon_margin_mixnet_structure_selected/"
+        "supm_mixnet_s_m0p05_s30_t0p1_ls1_lr0p0003_p128_projected__"
+        "stagemask_011010_k357.yaml"
     ),
     Path(
-        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
-        "stagemask_011010_k357_D10101_seed2026.yaml"
+        "configs/fixed_split_01234_models/supcon_margin_mixnet_structure_selected/"
+        "supm_mixnet_s_m0p05_s30_t0p1_ls1_lr0p0003_p128_projected__"
+        "12_p12_only_s2_k357.yaml"
     ),
     Path(
-        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
-        "12_p12_only_s2_k357_D11000_seed2026.yaml"
+        "configs/fixed_split_01234_models/supcon_margin_mixnet_structure_selected/"
+        "supm_mixnet_s_m0p05_s30_t0p05_ls1_lr0p0003_p128_projected__"
+        "stagemask_001101_k357.yaml"
     ),
     Path(
-        "configs/fixed_split_01234_models/mixnet_deformable_attention_selected/"
-        "12_p12_only_s2_k357_D10101_seed2026.yaml"
+        "configs/fixed_split_01234_models/supcon_margin_mixnet_structure_selected/"
+        "supm_mixnet_s_m0p05_s30_t0p05_ls1_lr0p0003_p128_projected__"
+        "10_p10_only_s0_k357.yaml"
+    ),
+    Path(
+        "configs/fixed_split_01234_models/supcon_margin_mixnet_structure_selected/"
+        "supm_mixnet_s_m0p05_s30_t0p05_ls1_lr0p0003_p128_projected__"
+        "stagemask_000101_k357.yaml"
+    ),
+    Path(
+        "configs/fixed_split_01234_models/supcon_margin_mixnet_structure_selected/"
+        "supm_mixnet_s_m0p05_s30_t0p05_ls1_lr0p0003_p128_projected__"
+        "p03_stride2_k357_g3_softmax.yaml"
+    ),
+    Path(
+        "configs/fixed_split_01234_models/supcon_margin_mixnet_structure_selected/"
+        "supm_mixnet_s_m0p05_s30_t0p05_ls1_lr0p0003_p128_projected__"
+        "stagemask_001001_k357.yaml"
+    ),
+    Path(
+        "configs/fixed_split_01234_models/supcon_margin_mixnet_structure_selected/"
+        "supm_mixnet_s_m0p05_s30_t0p05_ls1_lr0p0003_p128_projected__"
+        "13_p13_only_s3_k357.yaml"
+    ),
+    Path(
+        "configs/fixed_split_01234_models/supcon_margin_mixnet_structure_selected/"
+        "supm_mixnet_s_m0p05_s30_t0p05_ls1_lr0p0003_p128_projected__"
+        "stagemask_011010_k357.yaml"
+    ),
+    Path(
+        "configs/fixed_split_01234_models/supcon_margin_mixnet_structure_selected/"
+        "supm_mixnet_s_m0p05_s30_t0p05_ls1_lr0p0003_p128_projected__"
+        "12_p12_only_s2_k357.yaml"
     ),
 )
 
