@@ -25,31 +25,27 @@ train_batch_base.COMMON_CONFIG = Path(
 )
 
 CONFIG_DIR = Path(
-    "configs/fixed_split_01234_models/fourier_supcon_deformable_selected"
+    "configs/fixed_split_01234_models/four_group_3plus4_selected"
 )
-CONFIG_NAMES = (
-    "fourier_d1_s2b3__supm_mixnet_s_m0p1_s64_t0p1_ls0_lr0p001_p128_projected",
-    "fourier_d1_s2b3__supm_mixnet_s_m0p05_s30_t0p1_ls1_lr0p0003_p128_projected",
-    "fourier_d1_s2b3__supm_mixnet_s_m0p05_s30_t0p05_ls1_lr0p0003_p128_projected",
-    "fourier_d1_s2b3__D11000_seed2026",
-    "fourier_d1_s2b3__D10101_seed2026",
-    "fourier_d1_s2b3__D00000_seed42",
-    "fourier_d1_s2b3__D11011_seed2026",
-    "fourier_d9_s4_all__supm_mixnet_s_m0p1_s64_t0p1_ls0_lr0p001_p128_projected",
-    "fourier_d9_s4_all__supm_mixnet_s_m0p05_s30_t0p1_ls1_lr0p0003_p128_projected",
-    "fourier_d9_s4_all__supm_mixnet_s_m0p05_s30_t0p05_ls1_lr0p0003_p128_projected",
-    "fourier_d9_s4_all__D11000_seed2026",
-    "fourier_d9_s4_all__D10101_seed2026",
-    "fourier_d9_s4_all__D00000_seed42",
-    "fourier_d9_s4_all__D11011_seed2026",
-    "fourier_d2_s3b2__supm_mixnet_s_m0p1_s64_t0p1_ls0_lr0p001_p128_projected",
-    "fourier_d2_s3b2__supm_mixnet_s_m0p05_s30_t0p1_ls1_lr0p0003_p128_projected",
-    "fourier_d2_s3b2__supm_mixnet_s_m0p05_s30_t0p05_ls1_lr0p0003_p128_projected",
-    "fourier_d2_s3b2__D11000_seed2026",
-    "fourier_d2_s3b2__D10101_seed2026",
-    "fourier_d2_s3b2__D00000_seed42",
-    "fourier_d2_s3b2__D11011_seed2026",
-)
+CONFIG_NAMES_FILE = CONFIG_DIR / "CONFIG_NAMES.txt"
+EXPECTED_CONFIG_COUNT = 174
+
+
+def _load_config_names(path: Path) -> tuple[str, ...]:
+    names = tuple(
+        line.strip()
+        for line in (PROJECT_ROOT / path).read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    )
+    if len(names) != EXPECTED_CONFIG_COUNT:
+        raise RuntimeError(
+            f"{path.as_posix()} should list {EXPECTED_CONFIG_COUNT} configs, "
+            f"got {len(names)}."
+        )
+    return names
+
+
+CONFIG_NAMES = _load_config_names(CONFIG_NAMES_FILE)
 train_batch_base.CONFIG_LIST = tuple(CONFIG_DIR / f"{name}.yaml" for name in CONFIG_NAMES)
 
 train_batch_base.PYCHARM_DEVICE = "auto"
