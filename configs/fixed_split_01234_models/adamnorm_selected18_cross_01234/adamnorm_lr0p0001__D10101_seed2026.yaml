@@ -1,0 +1,49 @@
+name: adamnorm_lr0p0001__D10101_seed2026
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_deformable
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    deform_stage_ids:
+    - 0
+    - 2
+    - 4
+    num_heads: 4
+    num_points: 4
+    max_offset: 2.0
+    attention_dropout: 0.0
+    projection_dropout: 0.0
+    layer_scale_init: 0.001
+    deform_checkpoint: false
+  head:
+    type: linear
+    drop_rate: 0.0
+deformable_attention:
+  stage_bits: '10101'
+  bit_order:
+  - S0
+  - S1
+  - S2
+  - S3
+  - S4
+  deform_stage_ids:
+  - 0
+  - 2
+  - 4
+  num_heads: 4
+  num_points: 4
+  max_offset: 2.0
+  attention_dropout: 0.0
+  projection_dropout: 0.0
+  layer_scale_init: 0.001
+optimizer:
+  type: adamnorm
+  lr: 0.0001
+  gamma: 0.95
+adamnorm_source: adamnorm_stagemask_001101_k357_lr0p0001
+target_source: D10101_seed2026
+target_family: deformable

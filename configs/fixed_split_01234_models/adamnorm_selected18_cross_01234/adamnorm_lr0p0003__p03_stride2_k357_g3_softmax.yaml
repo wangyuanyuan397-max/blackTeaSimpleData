@@ -1,0 +1,26 @@
+name: adamnorm_lr0p0003__p03_stride2_k357_g3_softmax
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_search
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    placement: STRIDE2
+    kernel_sizes:
+    - 3
+    - 5
+    - 7
+    gate_type: softmax
+    gate_reduction: 4
+  head:
+    type: linear
+    drop_rate: 0.0
+optimizer:
+  type: adamnorm
+  lr: 0.0003
+  gamma: 0.95
+adamnorm_source: adamnorm_stagemask_001101_k357_lr0p0003
+target_source: p03_stride2_k357_g3_softmax
+target_family: structure

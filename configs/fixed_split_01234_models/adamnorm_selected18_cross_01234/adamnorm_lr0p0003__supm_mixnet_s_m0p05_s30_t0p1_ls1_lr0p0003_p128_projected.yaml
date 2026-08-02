@@ -1,0 +1,35 @@
+name: adamnorm_lr0p0003__supm_mixnet_s_m0p05_s30_t0p1_ls1_lr0p0003_p128_projected
+random_seed: 2026
+data:
+  train_transform:
+    type: two_view_patch_train_224
+    image_size: 408
+model:
+  type: supcon_margin_classifier
+  strategy: classification
+  backbone:
+    type: timm
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+  projector:
+    hidden_features: 256
+    out_features: 128
+    drop_rate: 0.0
+  classifier_feature: projected
+  head:
+    type: cosine_margin
+    margin: 0.05
+    scale: 30
+loss:
+  type: supcon_margin
+  lambda_ce: 1.0
+  lambda_supcon: 1
+  temperature: 0.1
+optimizer:
+  type: adamnorm
+  lr: 0.0003
+  gamma: 0.95
+adamnorm_source: adamnorm_stagemask_001101_k357_lr0p0003
+target_source: supm_mixnet_s_m0p05_s30_t0p1_ls1_lr0p0003_p128_projected
+target_family: supcon_margin
