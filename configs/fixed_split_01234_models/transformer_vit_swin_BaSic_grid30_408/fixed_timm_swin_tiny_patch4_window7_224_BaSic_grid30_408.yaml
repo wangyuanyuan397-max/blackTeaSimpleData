@@ -1,4 +1,4 @@
-name: fixed_timm_swin_tiny_patch4_window7_224_grid30_408
+name: fixed_timm_swin_tiny_patch4_window7_224_BaSic_grid30_408
 random_seed: 2026
 model:
   type: classifier

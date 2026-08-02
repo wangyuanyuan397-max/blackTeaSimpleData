@@ -1,4 +1,4 @@
-name: fixed_timm_vit_small_patch16_224_grid30_408
+name: fixed_timm_vit_small_patch16_224_BaSic_grid30_408
 random_seed: 2026
 model:
   type: classifier

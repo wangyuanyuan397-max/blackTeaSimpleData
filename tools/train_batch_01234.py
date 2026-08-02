@@ -1,7 +1,7 @@
 """Batch runner for the 01234 five-class experiments.
 
-This wrapper reuses tools/train_batch.py while pinning the 01234 grid30 408
-common config and the current experiment queue.
+This wrapper reuses tools/train_batch.py while pinning the 01234 BaSiC grid30
+408 common config and the current experiment queue.
 """
 
 import importlib.util
@@ -21,15 +21,15 @@ sys.modules["train_batch_base"] = train_batch_base
 spec.loader.exec_module(train_batch_base)
 
 train_batch_base.COMMON_CONFIG = Path(
-    "configs/fixed_split_01234_grid30_408_train.yaml"
+    "configs/fixed_split_01234_BaSic_grid30_408_train.yaml"
 )
 
 CONFIG_DIR = Path(
-    "configs/fixed_split_01234_models/transformer_vit_swin_grid30_408"
+    "configs/fixed_split_01234_models/transformer_vit_swin_BaSic_grid30_408"
 )
 CONFIG_NAMES = (
-    "fixed_timm_vit_small_patch16_224_grid30_408",
-    "fixed_timm_swin_tiny_patch4_window7_224_grid30_408",
+    "fixed_timm_vit_small_patch16_224_BaSic_grid30_408",
+    "fixed_timm_swin_tiny_patch4_window7_224_BaSic_grid30_408",
 )
 train_batch_base.CONFIG_LIST = tuple(CONFIG_DIR / f"{name}.yaml" for name in CONFIG_NAMES)
 
