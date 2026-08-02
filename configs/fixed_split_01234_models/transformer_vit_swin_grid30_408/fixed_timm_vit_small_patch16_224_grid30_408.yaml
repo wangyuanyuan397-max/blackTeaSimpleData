@@ -1,0 +1,24 @@
+name: fixed_timm_vit_small_patch16_224_grid30_408
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: timm
+    model_name: vit_small_patch16_224
+    pretrained: true
+    input_size: 224
+  head:
+    type: linear
+    drop_rate: 0.0
+data:
+  image_size: 224
+  train_transform:
+    type: patch_train_224
+    image_size: 224
+  eval_transform:
+    type: patch_eval_224
+    image_size: 224
+  test_transform:
+    type: patch_eval_224
+    image_size: 224

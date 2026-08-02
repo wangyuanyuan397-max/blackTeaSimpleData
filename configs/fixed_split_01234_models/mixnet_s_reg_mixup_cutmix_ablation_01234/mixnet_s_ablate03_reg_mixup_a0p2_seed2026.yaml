@@ -1,0 +1,23 @@
+name: mixnet_s_ablate03_reg_mixup_a0p2_seed2026
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: timm
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+  head:
+    type: linear
+    drop_rate: 0.5
+loss:
+  type: cross_entropy
+  label_smoothing: 0.1
+optimizer:
+  weight_decay: 0.01
+train:
+  batch_augmentation:
+    type: mixup
+    prob: 1.0
+    mixup_alpha: 0.2
