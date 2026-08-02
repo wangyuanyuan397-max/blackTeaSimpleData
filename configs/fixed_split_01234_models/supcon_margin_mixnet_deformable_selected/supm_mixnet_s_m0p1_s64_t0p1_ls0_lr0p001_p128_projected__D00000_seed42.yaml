@@ -1,0 +1,47 @@
+name: supm_mixnet_s_m0p1_s64_t0p1_ls0_lr0p001_p128_projected__D00000_seed42
+random_seed: 42
+data:
+  train_transform:
+    type: two_view_patch_train_224
+    image_size: 408
+model:
+  type: supcon_margin_classifier
+  strategy: classification
+  backbone:
+    type: timm
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+  projector:
+    hidden_features: 256
+    out_features: 128
+    drop_rate: 0.0
+  classifier_feature: projected
+  head:
+    type: cosine_margin
+    margin: 0.1
+    scale: 64
+loss:
+  type: supcon_margin
+  lambda_ce: 1.0
+  lambda_supcon: 0
+  temperature: 0.1
+optimizer:
+  lr: 0.001
+deformable_attention:
+  stage_bits: '00000'
+  bit_order:
+  - S0
+  - S1
+  - S2
+  - S3
+  - S4
+  deform_stage_ids: []
+  num_heads: 4
+  num_points: 4
+  max_offset: 2.0
+  attention_dropout: 0.0
+  projection_dropout: 0.0
+  layer_scale_init: 0.001
+supcon_margin_source: supm_mixnet_s_m0p1_s64_t0p1_ls0_lr0p001_p128_projected
+deformable_source: D00000_seed42
