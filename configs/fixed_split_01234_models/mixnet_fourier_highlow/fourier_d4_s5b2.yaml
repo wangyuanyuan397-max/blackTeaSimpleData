@@ -1,0 +1,26 @@
+name: fourier_d4_s5b2
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_fourier
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    fourier_blocks:
+      - S5B2
+    frequency_ratio: 0.25
+    low_frequency_radius_ratio: 0.35
+    reduction: 4
+    residual_scale_init: 0.0
+    min_frequency_channels: 1
+    fourier_checkpoint: false
+  head:
+    type: linear
+    drop_rate: 0.0
+fourier:
+  tag: D4
+  blocks:
+    - blocks[5][2]
+  purpose: deepest_low_resolution_frequency_check

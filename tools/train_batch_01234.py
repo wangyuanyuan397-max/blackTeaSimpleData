@@ -25,11 +25,19 @@ train_batch_base.COMMON_CONFIG = Path(
 )
 
 CONFIG_DIR = Path(
-    "configs/fixed_split_01234_models/transformer_vit_swin_BaSic_grid30_408"
+    "configs/fixed_split_01234_models/mixnet_fourier_highlow"
 )
 CONFIG_NAMES = (
-    "fixed_timm_vit_small_patch16_224_BaSic_grid30_408",
-    "fixed_timm_swin_tiny_patch4_window7_224_BaSic_grid30_408",
+    "fourier_d0_baseline_mixnet_s",
+    "fourier_d1_s2b3",
+    "fourier_d2_s3b2",
+    "fourier_d3_s4b2",
+    "fourier_d4_s5b2",
+    "fourier_d5_s2b3_s3b2",
+    "fourier_d6_s2b3_s4b2",
+    "fourier_d7_s3b2_s4b2",
+    "fourier_d8_s2b3_s3b2_s4b2",
+    "fourier_d9_s4_all",
 )
 train_batch_base.CONFIG_LIST = tuple(CONFIG_DIR / f"{name}.yaml" for name in CONFIG_NAMES)
 

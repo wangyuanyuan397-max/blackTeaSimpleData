@@ -1,0 +1,30 @@
+name: fourier_d9_s4_all
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_fourier
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    fourier_blocks:
+      - S4B0
+      - S4B1
+      - S4B2
+    frequency_ratio: 0.25
+    low_frequency_radius_ratio: 0.35
+    reduction: 4
+    residual_scale_init: 0.0
+    min_frequency_channels: 1
+    fourier_checkpoint: false
+  head:
+    type: linear
+    drop_rate: 0.0
+fourier:
+  tag: D9
+  blocks:
+    - blocks[4][0]
+    - blocks[4][1]
+    - blocks[4][2]
+  purpose: dense_same_stage_frequency_filtering
