@@ -13,6 +13,13 @@ from torch.utils.checkpoint import checkpoint
 
 from ...utils.registry import BACKBONES
 from .deformable_attention import DeformableAttention2d
+from .mixnet_fourier import (
+    FourierBlockInfo,
+    FourierBeforeSE,
+    HighLowFourierFilter2d,
+    _block_feature_channels,
+    normalize_mixnet_block_names,
+)
 from .mixnet_search import (
     ALL_BLOCKS,
     SearchMixedDepthwiseConv2d,
@@ -66,6 +73,13 @@ class MixNetSDeformableBackbone(nn.Module):
         kernel_plan: Mapping[str, Sequence[int]] | None = None,
         gate_type: str = "none",
         gate_reduction: int = 4,
+        fourier_blocks: Sequence[str] | None = None,
+        frequency_ratio: float = 0.25,
+        low_frequency_radius_ratio: float = 0.35,
+        reduction: int = 4,
+        residual_scale_init: float = 0.0,
+        min_frequency_channels: int = 1,
+        fourier_checkpoint: bool = False,
         **kwargs,
     ) -> None:
         super().__init__()
@@ -84,6 +98,16 @@ class MixNetSDeformableBackbone(nn.Module):
         self.kernel_plan = self._resolve_kernel_plan(kernel_plan, kernel_sizes)
         self.applied_blocks: dict[str, tuple[int, ...]] = {}
         self._apply_kernel_plan(gate_reduction=int(gate_reduction))
+
+        self.fourier_blocks = normalize_mixnet_block_names(fourier_blocks)
+        self.frequency_ratio = float(frequency_ratio)
+        self.low_frequency_radius_ratio = float(low_frequency_radius_ratio)
+        self.reduction = int(reduction)
+        self.residual_scale_init = float(residual_scale_init)
+        self.min_frequency_channels = int(min_frequency_channels)
+        self.fourier_checkpoint = bool(fourier_checkpoint)
+        self.applied_fourier_blocks: dict[str, FourierBlockInfo] = {}
+        self._insert_fourier_filters()
 
         self.deform_stage_ids = normalize_stage_ids(deform_stage_ids)
         self.deform_checkpoint = bool(deform_checkpoint)
@@ -160,6 +184,40 @@ class MixNetSDeformableBackbone(nn.Module):
             copy_resized_depthwise_weights(old_conv, new_conv)
             block.conv_dw = new_conv
             self.applied_blocks[block_name] = tuple(kernels)
+
+    def _insert_fourier_filters(self) -> None:
+        for block_name in self.fourier_blocks:
+            stage_index, block_index = parse_block_name(block_name)
+            try:
+                block = self.model.blocks[stage_index][block_index]
+            except IndexError as exc:
+                raise ValueError(f"MixNet-S block does not exist: {block_name}") from exc
+            if not hasattr(block, "se"):
+                raise ValueError(f"MixNet-S block has no SE slot: {block_name}.")
+
+            channels = _block_feature_channels(block)
+            fourier = HighLowFourierFilter2d(
+                channels=channels,
+                frequency_ratio=self.frequency_ratio,
+                low_frequency_radius_ratio=self.low_frequency_radius_ratio,
+                reduction=self.reduction,
+                residual_scale_init=self.residual_scale_init,
+                min_frequency_channels=self.min_frequency_channels,
+            )
+            old_se = block.se
+            block.se = FourierBeforeSE(
+                fourier=fourier,
+                se=old_se,
+                use_checkpoint=self.fourier_checkpoint,
+            )
+            self.applied_fourier_blocks[block_name] = FourierBlockInfo(
+                block_name=block_name,
+                timm_stage_index=stage_index,
+                block_index=block_index,
+                channels=channels,
+                frequency_channels=fourier.frequency_channels,
+                local_channels=fourier.local_channels,
+            )
 
     def _discover_stage_infos(self, input_size: int) -> tuple[StageInfo, ...]:
         required = ("conv_stem", "bn1", "blocks", "conv_head", "bn2", "forward_head")
@@ -279,6 +337,9 @@ class MixNetSDeformableBackbone(nn.Module):
     def describe_deformable_stages(self) -> list[dict[str, int]]:
         return [asdict(info) for info in self.stage_infos]
 
+    def describe_fourier_blocks(self) -> list[dict[str, int | str]]:
+        return [asdict(info) for info in self.applied_fourier_blocks.values()]
+
     def collect_deformable_diagnostics(self) -> dict[str, dict[str, float]]:
         diagnostics: dict[str, dict[str, float]] = {}
         for stage_key, block in self.deform_blocks.items():
@@ -294,3 +355,8 @@ class MixNetSDeformableBackbone(nn.Module):
                     values[attr_name] = float(value.detach().cpu().item())
             diagnostics[f"S{stage_key}"] = values
         return diagnostics
+
+
+@BACKBONES.register("mixnet_s_fourier_deformable")
+class MixNetSFourierDeformableBackbone(MixNetSDeformableBackbone):
+    """MixNet-S backbone that can combine Fourier filters and deformable attention."""

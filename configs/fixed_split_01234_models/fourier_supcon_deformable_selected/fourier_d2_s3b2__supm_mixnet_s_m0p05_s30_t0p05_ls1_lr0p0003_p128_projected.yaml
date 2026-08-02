@@ -1,0 +1,46 @@
+name: fourier_d2_s3b2__supm_mixnet_s_m0p05_s30_t0p05_ls1_lr0p0003_p128_projected
+random_seed: 2026
+data:
+  train_transform:
+    type: two_view_patch_train_224
+    image_size: 408
+model:
+  type: supcon_margin_classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_fourier
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    fourier_blocks:
+    - S3B2
+    frequency_ratio: 0.25
+    low_frequency_radius_ratio: 0.35
+    reduction: 4
+    residual_scale_init: 0.0
+    min_frequency_channels: 1
+    fourier_checkpoint: false
+  projector:
+    hidden_features: 256
+    out_features: 128
+    drop_rate: 0.0
+  classifier_feature: projected
+  head:
+    type: cosine_margin
+    margin: 0.05
+    scale: 30
+loss:
+  type: supcon_margin
+  lambda_ce: 1.0
+  lambda_supcon: 1
+  temperature: 0.05
+optimizer:
+  lr: 0.0003
+fourier_source: fourier_d2_s3b2
+target_source: supm_mixnet_s_m0p05_s30_t0p05_ls1_lr0p0003_p128_projected
+target_family: supcon_margin
+fourier:
+  tag: D2
+  blocks:
+  - blocks[3][2]
+  purpose: stable_mid_high_semantic_frequency

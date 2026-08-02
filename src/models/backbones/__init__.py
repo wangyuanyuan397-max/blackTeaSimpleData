@@ -21,7 +21,7 @@ from .efficientnet_gated import (
     EfficientNetV2SMultiStageGatedFusionBackbone,
 )
 from .mixnet_search import MixNetSSearchBackbone
-from .mixnet_deformable import MixNetSDeformableBackbone
+from .mixnet_deformable import MixNetSDeformableBackbone, MixNetSFourierDeformableBackbone
 from .mixnet_fourier import MixNetSFourierBackbone
 from .adgbc import TimmADGBCBackbone
 from .vim import VimSmallMiddleClsTokenBackbone
@@ -53,6 +53,7 @@ __all__ = [
     'EfficientNetV2SMultiStageGatedFusionBackbone',
     'MixNetSSearchBackbone',
     'MixNetSDeformableBackbone',
+    'MixNetSFourierDeformableBackbone',
     'MixNetSFourierBackbone',
     'TimmADGBCBackbone',
     'VimSmallMiddleClsTokenBackbone',
