@@ -25,19 +25,21 @@ train_batch_base.COMMON_CONFIG = Path(
 )
 
 CONFIG_DIR = Path(
-    "configs/fixed_split_01234_models/mixnet_fourier_highlow"
+    "configs/fixed_split_01234_models/supcon_margin_mixnet_deformable_selected"
 )
 CONFIG_NAMES = (
-    "fourier_d0_baseline_mixnet_s",
-    "fourier_d1_s2b3",
-    "fourier_d2_s3b2",
-    "fourier_d3_s4b2",
-    "fourier_d4_s5b2",
-    "fourier_d5_s2b3_s3b2",
-    "fourier_d6_s2b3_s4b2",
-    "fourier_d7_s3b2_s4b2",
-    "fourier_d8_s2b3_s3b2_s4b2",
-    "fourier_d9_s4_all",
+    "supm_mixnet_s_m0p1_s64_t0p1_ls0_lr0p001_p128_projected__D11000_seed2026",
+    "supm_mixnet_s_m0p1_s64_t0p1_ls0_lr0p001_p128_projected__D10101_seed2026",
+    "supm_mixnet_s_m0p1_s64_t0p1_ls0_lr0p001_p128_projected__D00000_seed42",
+    "supm_mixnet_s_m0p1_s64_t0p1_ls0_lr0p001_p128_projected__D11011_seed2026",
+    "supm_mixnet_s_m0p05_s30_t0p1_ls1_lr0p0003_p128_projected__D11000_seed2026",
+    "supm_mixnet_s_m0p05_s30_t0p1_ls1_lr0p0003_p128_projected__D10101_seed2026",
+    "supm_mixnet_s_m0p05_s30_t0p1_ls1_lr0p0003_p128_projected__D00000_seed42",
+    "supm_mixnet_s_m0p05_s30_t0p1_ls1_lr0p0003_p128_projected__D11011_seed2026",
+    "supm_mixnet_s_m0p05_s30_t0p05_ls1_lr0p0003_p128_projected__D11000_seed2026",
+    "supm_mixnet_s_m0p05_s30_t0p05_ls1_lr0p0003_p128_projected__D10101_seed2026",
+    "supm_mixnet_s_m0p05_s30_t0p05_ls1_lr0p0003_p128_projected__D00000_seed42",
+    "supm_mixnet_s_m0p05_s30_t0p05_ls1_lr0p0003_p128_projected__D11011_seed2026",
 )
 train_batch_base.CONFIG_LIST = tuple(CONFIG_DIR / f"{name}.yaml" for name in CONFIG_NAMES)
 
