@@ -25,17 +25,12 @@ train_batch_base.COMMON_CONFIG = Path(
 )
 
 CONFIG_DIR = Path(
-    "configs/fixed_split_01234_models/supcon_margin_mixnet_deformable_selected"
+    "configs/fixed_split_01234_models/mixup_cutmix_baseline_mixnet_s"
 )
 CONFIG_NAMES = (
-    "supm_mixnet_s_m0p1_s64_t0p1_ls0_lr0p001_p128_projected__D11000_seed2026",
-    "supm_mixnet_s_m0p1_s64_t0p1_ls0_lr0p001_p128_projected__D10101_seed2026",
-    "supm_mixnet_s_m0p1_s64_t0p1_ls0_lr0p001_p128_projected__D00000_seed42",
-    "supm_mixnet_s_m0p1_s64_t0p1_ls0_lr0p001_p128_projected__D11011_seed2026",
-    "supm_mixnet_s_m0p05_s30_t0p1_ls1_lr0p0003_p128_projected__D11000_seed2026",
-    "supm_mixnet_s_m0p05_s30_t0p1_ls1_lr0p0003_p128_projected__D10101_seed2026",
-    "supm_mixnet_s_m0p05_s30_t0p1_ls1_lr0p0003_p128_projected__D00000_seed42",
-    "supm_mixnet_s_m0p05_s30_t0p1_ls1_lr0p0003_p128_projected__D11011_seed2026",
+    "mixnet_s_mixup_a0p5_seed2026",
+    "mixnet_s_cutmix_a1p0_seed2026",
+    "mixnet_s_mixup_cutmix_m0p5_c1p0_seed2026",
 )
 train_batch_base.CONFIG_LIST = tuple(CONFIG_DIR / f"{name}.yaml" for name in CONFIG_NAMES)
 

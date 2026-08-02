@@ -198,6 +198,12 @@ class Trainer:
 
         # 二阶段困难样本实验会在正式训练前按绝对图片路径注入固定权重。
         self.sample_weights_by_path: Dict[str, float] = {}
+        self.batch_augmentation_cfg = self._get_batch_augmentation_config()
+        if self.batch_augmentation_cfg is not None:
+            self.logger.info(
+                "batch_augmentation_enabled",
+                **self.batch_augmentation_cfg,
+            )
 
     def set_sample_weights_by_path(self, sample_weights: Dict[str, float]) -> None:
         """设置训练集逐样本权重；未出现在字典中的样本默认权重为 1。"""
@@ -653,6 +659,106 @@ class Trainer:
             return self.loss_fn(outputs, labels, extra_targets=extra_targets)
         return self.loss_fn(outputs, labels)
 
+    def _get_batch_augmentation_config(self) -> Optional[Dict[str, Any]]:
+        train_cfg = self.config.train
+        if hasattr(train_cfg, "model_dump"):
+            values = train_cfg.model_dump()
+        elif isinstance(train_cfg, dict):
+            values = dict(train_cfg)
+        else:
+            values = vars(train_cfg)
+
+        raw_cfg = values.get("batch_augmentation") or values.get("batch_mix")
+        if not raw_cfg:
+            return None
+        if not isinstance(raw_cfg, dict):
+            raise ValueError("train.batch_augmentation must be a mapping.")
+        if raw_cfg.get("enabled", True) is False:
+            return None
+
+        aug_type = str(raw_cfg.get("type", "mixup_cutmix")).lower()
+        aliases = {
+            "mix": "mixup_cutmix",
+            "mixed": "mixup_cutmix",
+            "mixup+cutmix": "mixup_cutmix",
+            "mixup_cutmix": "mixup_cutmix",
+            "mixup": "mixup",
+            "cutmix": "cutmix",
+        }
+        if aug_type not in aliases:
+            raise ValueError(
+                "train.batch_augmentation.type must be one of: mixup, cutmix, mixup_cutmix."
+            )
+
+        cfg = dict(raw_cfg)
+        cfg["type"] = aliases[aug_type]
+        cfg["prob"] = float(cfg.get("prob", 1.0))
+        cfg["mixup_alpha"] = float(cfg.get("mixup_alpha", cfg.get("alpha", 0.5)))
+        cfg["cutmix_alpha"] = float(cfg.get("cutmix_alpha", cfg.get("alpha", 1.0)))
+        cfg["switch_prob"] = float(cfg.get("switch_prob", 0.5))
+        if not 0.0 <= cfg["prob"] <= 1.0:
+            raise ValueError("train.batch_augmentation.prob must be in [0, 1].")
+        if not 0.0 <= cfg["switch_prob"] <= 1.0:
+            raise ValueError("train.batch_augmentation.switch_prob must be in [0, 1].")
+        if cfg["mixup_alpha"] < 0 or cfg["cutmix_alpha"] < 0:
+            raise ValueError("MixUp/CutMix alpha values must be non-negative.")
+        return cfg
+
+    @staticmethod
+    def _sample_beta(alpha: float) -> float:
+        if alpha <= 0:
+            return 1.0
+        beta = torch.distributions.Beta(float(alpha), float(alpha))
+        return float(beta.sample().item())
+
+    @staticmethod
+    def _rand_bbox(images: torch.Tensor, lam: float) -> tuple[int, int, int, int]:
+        height = int(images.size(-2))
+        width = int(images.size(-1))
+        cut_ratio = float(np.sqrt(max(0.0, 1.0 - lam)))
+        cut_w = int(width * cut_ratio)
+        cut_h = int(height * cut_ratio)
+        cx = int(torch.randint(width, (1,), device=images.device).item())
+        cy = int(torch.randint(height, (1,), device=images.device).item())
+        x1 = max(cx - cut_w // 2, 0)
+        y1 = max(cy - cut_h // 2, 0)
+        x2 = min(cx + cut_w // 2, width)
+        y2 = min(cy + cut_h // 2, height)
+        return x1, y1, x2, y2
+
+    def _apply_batch_augmentation(
+        self,
+        images: torch.Tensor,
+        labels: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, float, Optional[str]]:
+        cfg = self.batch_augmentation_cfg
+        if cfg is None or images.ndim != 4 or labels.ndim != 1 or images.size(0) < 2:
+            return images, labels, labels, 1.0, None
+        if float(torch.rand((), device=images.device).item()) > cfg["prob"]:
+            return images, labels, labels, 1.0, None
+
+        aug_type = str(cfg["type"])
+        if aug_type == "mixup_cutmix":
+            use_cutmix = float(torch.rand((), device=images.device).item()) < cfg["switch_prob"]
+            aug_type = "cutmix" if use_cutmix else "mixup"
+
+        permutation = torch.randperm(images.size(0), device=images.device)
+        if aug_type == "mixup":
+            lam = self._sample_beta(float(cfg["mixup_alpha"]))
+            mixed_images = images.mul(lam).add(images[permutation], alpha=1.0 - lam)
+            return mixed_images, labels, labels[permutation], lam, "mixup"
+
+        if aug_type == "cutmix":
+            lam = self._sample_beta(float(cfg["cutmix_alpha"]))
+            mixed_images = images.clone()
+            x1, y1, x2, y2 = self._rand_bbox(mixed_images, lam)
+            mixed_images[:, :, y1:y2, x1:x2] = images[permutation, :, y1:y2, x1:x2]
+            area = float((x2 - x1) * (y2 - y1))
+            lam = 1.0 - area / float(images.size(-1) * images.size(-2))
+            return mixed_images, labels, labels[permutation], lam, "cutmix"
+
+        return images, labels, labels, 1.0, None
+
     def _train_epoch(self, epoch: int) -> Dict[str, float]:
         """
         训练一(epoch
@@ -772,6 +878,10 @@ class Trainer:
         images = images.to(self.device)
         labels = labels.to(self.device)
         extra_targets = self._move_extra_targets_to_device(extra_targets, self.device)
+        images, labels_a, labels_b, lam, augmentation_name = self._apply_batch_augmentation(
+            images,
+            labels,
+        )
         
         # 前向传播
         # outputs 对普通分类模型通常是 [B, Num_Classes]；
@@ -779,7 +889,12 @@ class Trainer:
         outputs = self.model(images)
         
         # Pass full outputs to loss_fn so CE+CLOC / CE+AOL can use embeddings.
-        loss = self._compute_loss(outputs, labels, extra_targets=extra_targets)
+        if augmentation_name is None:
+            loss = self._compute_loss(outputs, labels, extra_targets=extra_targets)
+        else:
+            loss_a = self._compute_loss(outputs, labels_a)
+            loss_b = self._compute_loss(outputs, labels_b)
+            loss = loss_a * lam + loss_b * (1.0 - lam)
         
         # 缩放损失 (为了梯度累加)
         # 如果 accumulation_steps=1，则 loss / 1 不变

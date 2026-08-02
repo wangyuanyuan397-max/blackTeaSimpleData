@@ -1,0 +1,20 @@
+name: mixnet_s_mixup_cutmix_m0p5_c1p0_seed2026
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: timm
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+  head:
+    type: linear
+    drop_rate: 0.0
+train:
+  batch_augmentation:
+    type: mixup_cutmix
+    prob: 1.0
+    mixup_alpha: 0.5
+    cutmix_alpha: 1.0
+    switch_prob: 0.5
