@@ -1,0 +1,23 @@
+name: lm15_hdm_large_lgfi_b4
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_litemono
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    mixedconv_replacement: large_only
+    keep_dense_kernel_size: 5
+    lgfi_after_blocks:
+      - 4
+    lgfi_layer_scale_init: 0.0
+  head:
+    type: linear
+    drop_rate: 0.0
+litemono:
+  group: combo
+  components:
+    - hybrid_dilated_large_only
+    - lgfi_after_blocks_4

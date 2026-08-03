@@ -1,0 +1,19 @@
+name: lm13_rgb_after_b4
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_litemono
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    rgb_injection_after_blocks:
+      - 4
+    rgb_layer_scale_init: 0.0
+  head:
+    type: linear
+    drop_rate: 0.0
+litemono:
+  group: pooled_rgb
+  position: after_blocks_4

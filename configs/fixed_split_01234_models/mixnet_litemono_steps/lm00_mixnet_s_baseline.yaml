@@ -1,0 +1,16 @@
+name: lm00_mixnet_s_baseline
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: timm
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+  head:
+    type: linear
+    drop_rate: 0.0
+litemono:
+  group: baseline
+  baseline: official_timm_mixnet_s

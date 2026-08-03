@@ -25,10 +25,10 @@ train_batch_base.COMMON_CONFIG = Path(
 )
 
 CONFIG_DIR = Path(
-    "configs/fixed_split_01234_models/four_group_3plus4_selected"
+    "configs/fixed_split_01234_models/mixnet_litemono_steps"
 )
 CONFIG_NAMES_FILE = CONFIG_DIR / "CONFIG_NAMES.txt"
-EXPECTED_CONFIG_COUNT = 174
+EXPECTED_CONFIG_COUNT = 19
 
 
 def _load_config_names(path: Path) -> tuple[str, ...]:

@@ -1,0 +1,23 @@
+name: lm06_lgfi_after_b4_no_s4b2_se
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_litemono
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    remove_se_blocks:
+      - S4B2
+    lgfi_after_blocks:
+      - 4
+    lgfi_layer_scale_init: 0.0
+  head:
+    type: linear
+    drop_rate: 0.0
+litemono:
+  group: lgfi_se_overlap
+  position: after_blocks_4
+  removed_se:
+    - blocks[4][2]

@@ -1,0 +1,26 @@
+name: lm16_cdc_b4_lgfi_b4
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_litemono
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    cdc_stage_plans:
+      4:
+        - 1
+        - 2
+        - 3
+    lgfi_after_blocks:
+      - 4
+    lgfi_layer_scale_init: 0.0
+  head:
+    type: linear
+    drop_rate: 0.0
+litemono:
+  group: combo
+  components:
+    - cdc_blocks_4_d123
+    - lgfi_after_blocks_4

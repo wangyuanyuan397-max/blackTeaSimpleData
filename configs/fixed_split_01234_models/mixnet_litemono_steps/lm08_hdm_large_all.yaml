@@ -1,0 +1,18 @@
+name: lm08_hdm_large_all
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_litemono
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    mixedconv_replacement: large_only
+    keep_dense_kernel_size: 5
+  head:
+    type: linear
+    drop_rate: 0.0
+litemono:
+  group: hybrid_dilated_mixconv
+  rule: replace_7_9_11_with_dilated_3x3

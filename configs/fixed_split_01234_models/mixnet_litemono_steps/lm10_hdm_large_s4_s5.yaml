@@ -1,0 +1,25 @@
+name: lm10_hdm_large_s4_s5
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_litemono
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    mixedconv_replacement: large_only
+    keep_dense_kernel_size: 5
+    hybrid_replace_blocks:
+      - S4B0
+      - S4B1
+      - S4B2
+      - S5B0
+      - S5B1
+      - S5B2
+  head:
+    type: linear
+    drop_rate: 0.0
+litemono:
+  group: hybrid_dilated_mixconv
+  rule: replace_late_large_kernels_only

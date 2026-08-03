@@ -1,0 +1,31 @@
+name: lm18_hdm_large_lgfi_b4_fourier_d6
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_litemono
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    mixedconv_replacement: large_only
+    keep_dense_kernel_size: 5
+    lgfi_after_blocks:
+      - 4
+    lgfi_layer_scale_init: 0.0
+    fourier_blocks:
+      - S2B3
+      - S4B2
+    frequency_ratio: 0.25
+    low_frequency_radius_ratio: 0.35
+    fourier_reduction: 4
+    fourier_residual_scale_init: 0.0
+  head:
+    type: linear
+    drop_rate: 0.0
+litemono:
+  group: combo
+  components:
+    - hybrid_dilated_large_only
+    - lgfi_after_blocks_4
+    - fourier_d6_s2b3_s4b2

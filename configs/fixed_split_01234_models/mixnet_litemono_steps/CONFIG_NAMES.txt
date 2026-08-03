@@ -1,0 +1,21 @@
+# Queue for tools/train_batch_01234.py
+# Baseline + LGFI + Hybrid Dilated MixConv + CDC + low-priority checks + combos.
+lm00_mixnet_s_baseline
+lm01_lgfi_after_b4
+lm02_lgfi_after_b3
+lm03_lgfi_after_b3_b4
+lm04_lgfi_after_b2_b4
+lm05_lgfi_after_b5
+lm06_lgfi_after_b4_no_s4b2_se
+lm07_lgfi_after_b4_no_b4_se
+lm08_hdm_large_all
+lm09_hdm_all_dilated
+lm10_hdm_large_s4_s5
+lm11_cdc_b4_d123
+lm12_cdc_b3_d123
+lm13_rgb_after_b4
+lm14_skip_b2_to_b4
+lm15_hdm_large_lgfi_b4
+lm16_cdc_b4_lgfi_b4
+lm17_hdm_large_lgfi_b3_b4
+lm18_hdm_large_lgfi_b4_fourier_d6
