@@ -1,0 +1,12 @@
+name: saa_rep_mid_e1_g1_seed42
+random_seed: 42
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_saa
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    mixconv_saa: {enabled: true, target: mid, keep_original_kernels: true, expansion: 1, inter_groups: 1, mode: residual, gamma_init: 0.1, heads: auto}
+  head: {type: linear, drop_rate: 0.0}

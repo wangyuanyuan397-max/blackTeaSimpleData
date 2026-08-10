@@ -1,7 +1,8 @@
-"""datasets_01234 最佳epoch混淆矩阵、父图投票和高置信错误图诊断。
+"""MixNet-S 的 30-patch 父图投票、patch disagreement 和错误图诊断。
 
-直接右键运行即可。默认重新训练 fixed_efficientnet_v2_s，并在内存中保存：
-最高 val_acc、最低 val_loss、最高 val_macro_f1、最高 val_qwk 四个最佳状态。
+默认使用 datasets_01234_grid30_408 的 manifest 恢复“1 张原图 -> 30 个
+patch”映射。设置 CHECKPOINT_PATH 后可直接诊断已有 checkpoint，无需重新
+训练；只有显式设置 RETRAIN_MODEL=True 才会进入训练流程。
 """
 
 from __future__ import annotations
@@ -36,17 +37,25 @@ from sklearn.metrics import accuracy_score, cohen_kappa_score, confusion_matrix,
 # 右键运行前主要改这里
 # =========================
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-COMMON_CONFIG_PATH = Path("configs/fixed_split_01234_train.yaml")
-MODEL_CONFIG_PATH = Path("configs/fixed_split_01234_models/fixed_efficientnet_v2_s.yaml")
+COMMON_CONFIG_PATH = Path("configs/fixed_split_01234_grid30_408_train.yaml")
+MODEL_CONFIG_PATH = Path("configs/fixed_split_01234_models/fixed_timm_mixnet_s.yaml")
 
-# 408 版本数据集：裁剪出 408x408 后不再提前缩放成 224x224。
-DATASET_ROOT = Path("datasets_01234_408")
+# 每张原图按 5x6 固定网格裁成 30 个 408x408 patch。
+DATASET_ROOT = Path("datasets_01234_grid30_408")
+CROP_MANIFEST_PATH = DATASET_ROOT / "grid30_crop_manifest.csv"
+EXPECTED_PATCHES_PER_PARENT = 30
 
 # 关键：如果这里不改成 408，公共 YAML 里的 transform 仍会把图片 resize 回 224。
 # 如果想切回旧的 224 数据集，把 DATASET_ROOT 改回 datasets_01234，并把这里改成 224。
 INPUT_IMAGE_SIZE = 408
 
 OUTPUT_ROOT = Path("temp/useOnce/best_epoch_parent_diagnostics_408_runs")
+
+# 优先直接诊断已有 MixNet-S checkpoint。支持裸 state_dict，以及包含
+# model_state_dict/state_dict/model 键的 checkpoint。None 时会尝试在
+# runs_01234_grid30_408 下自动寻找最新的 MixNet-S best_model.pth。
+CHECKPOINT_PATH: Optional[Path] = None
+RETRAIN_MODEL = False
 
 DEVICE_NAME = "auto"  # auto / cuda / cpu
 EPOCHS_OVERRIDE: Optional[int] = None  # 快速试脚本可改成 2；正式诊断保持 None
@@ -108,6 +117,61 @@ def load_yaml(path: Path) -> Dict[str, Any]:
     return data
 
 
+def resolve_checkpoint_path() -> Optional[Path]:
+    """Resolve an explicit checkpoint or auto-discover the newest standard MixNet-S run."""
+    if CHECKPOINT_PATH is not None:
+        checkpoint_path = resolve_project_path(CHECKPOINT_PATH)
+        if not checkpoint_path.is_file():
+            raise FileNotFoundError(f"找不到 CHECKPOINT_PATH：{checkpoint_path}")
+        return checkpoint_path
+
+    runs_root = PROJECT_ROOT / "runs_01234_grid30_408"
+    if not runs_root.is_dir():
+        return None
+    candidates = [
+        path
+        for path in runs_root.rglob("best_model.pth")
+        if "mixnet_s" in path.parent.name.lower()
+    ]
+    return max(candidates, key=lambda path: path.stat().st_mtime) if candidates else None
+
+
+def load_model_checkpoint(model: nn.Module, checkpoint_path: Path) -> Dict[str, Any]:
+    """Load the common checkpoint formats used by this repository."""
+    try:
+        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    except TypeError:
+        checkpoint = torch.load(checkpoint_path, map_location="cpu")
+
+    state_dict: Any = checkpoint
+    if isinstance(checkpoint, dict):
+        for key in ("model_state_dict", "state_dict", "model"):
+            candidate = checkpoint.get(key)
+            if isinstance(candidate, dict):
+                state_dict = candidate
+                break
+    if not isinstance(state_dict, dict) or not state_dict:
+        raise ValueError(f"checkpoint 中没有可用的 model state_dict：{checkpoint_path}")
+
+    for prefix in ("module.", "model."):
+        if all(str(key).startswith(prefix) for key in state_dict):
+            state_dict = {str(key)[len(prefix):]: value for key, value in state_dict.items()}
+    try:
+        model.load_state_dict(state_dict, strict=True)
+    except RuntimeError as exc:
+        raise RuntimeError(
+            f"checkpoint 与 {MODEL_CONFIG_PATH} 构建的模型不兼容：{checkpoint_path}\n{exc}"
+        ) from exc
+
+    metadata: Dict[str, Any] = {"checkpoint_path": str(checkpoint_path)}
+    if isinstance(checkpoint, dict):
+        if "epoch" in checkpoint:
+            metadata["epoch"] = int(checkpoint["epoch"])
+        if isinstance(checkpoint.get("metrics"), dict):
+            metadata["saved_metrics"] = checkpoint["metrics"]
+    return metadata
+
+
 def make_run_dir(model_name: str) -> Path:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_dir = resolve_project_path(OUTPUT_ROOT) / f"{model_name}_{timestamp}"
@@ -130,7 +194,7 @@ def write_rows(path: Path, rows: Sequence[Dict[str, Any]], fieldnames: Optional[
         writer.writerows(rows)
 
 
-def build_config(run_dir: Path, device: torch.device) -> Tuple[str, TrainingConfig]:
+def build_config(run_dir: Path, device: torch.device, use_pretrained: bool = True) -> Tuple[str, TrainingConfig]:
     common = load_yaml(COMMON_CONFIG_PATH)
     model_cfg = load_yaml(MODEL_CONFIG_PATH)
     model_name = str(model_cfg.get("name") or MODEL_CONFIG_PATH.stem)
@@ -142,6 +206,10 @@ def build_config(run_dir: Path, device: torch.device) -> Tuple[str, TrainingConf
     cfg["enable_google_drive_upload"] = False
     cfg["random_seed"] = int(cfg.get("random_seed", RANDOM_SEED))
     cfg["model"] = copy.deepcopy(model_cfg["model"])
+    backbone_cfg = cfg["model"].get("backbone") if isinstance(cfg["model"], dict) else None
+    if isinstance(backbone_cfg, dict) and not use_pretrained:
+        # checkpoint 会完整覆盖权重，构建模型时无需下载 ImageNet 预训练权重。
+        backbone_cfg["pretrained"] = False
     if isinstance(model_cfg.get("loss"), dict):
         cfg["loss"] = copy.deepcopy(model_cfg["loss"])
     for section in ("train", "optimizer", "scheduler"):
@@ -504,28 +572,184 @@ def save_best_confusions(
     return summary
 
 
-def parse_parent_and_crop(path: str) -> Tuple[str, str]:
+def parse_parent_and_crop(path: str) -> Tuple[str, int]:
+    """Parse supported patch names without silently treating a patch as its own parent."""
     stem = Path(path).stem
-    match = re.match(r"(?P<parent>.+)__random\d+_(?P<crop>\d+)$", stem)
-    if match:
-        return match.group("parent"), match.group("crop")
-    return stem, ""
+    patterns = (
+        r"^(?P<parent>.+)__(?:grid30|random\d+)_(?P<crop>\d+)$",
+        r"^(?P<parent>.+)_patch_?(?P<crop>\d+)$",
+    )
+    for pattern in patterns:
+        match = re.match(pattern, stem, flags=re.IGNORECASE)
+        if match:
+            return match.group("parent"), int(match.group("crop"))
+    raise ValueError(
+        f"无法从 patch 文件名恢复 parent/patch_index：{path}。"
+        "请提供 crop manifest，或使用 *_patch_01 / *__grid30_01 / *__random55_001 命名。"
+    )
+
+
+def crop_path_keys(path: Path | str) -> List[str]:
+    """Create move-tolerant lookup aliases for one crop path."""
+    raw = str(path).replace("\\", "/").casefold()
+    candidate = Path(path)
+    keys = [raw, candidate.name.casefold()]
+    try:
+        keys.append(str(candidate.resolve()).replace("\\", "/").casefold())
+    except OSError:
+        pass
+    return list(dict.fromkeys(keys))
+
+
+def load_crop_manifest(path: Path) -> Dict[str, Dict[str, Any]]:
+    """Index source-image and patch metadata from the dataset crop manifest."""
+    manifest_path = resolve_project_path(path)
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"找不到 crop manifest：{manifest_path}")
+
+    dataset_root = resolve_project_path(DATASET_ROOT)
+    index: Dict[str, Dict[str, Any]] = {}
+    with manifest_path.open("r", encoding="utf-8-sig", newline="") as file:
+        reader = csv.DictReader(file)
+        required = {"source_image_id", "target_relpath"}
+        missing = required.difference(reader.fieldnames or [])
+        if missing:
+            raise ValueError(f"crop manifest 缺少列 {sorted(missing)}：{manifest_path}")
+        patch_column = "patch_index" if "patch_index" in (reader.fieldnames or []) else "crop_index"
+        if patch_column not in (reader.fieldnames or []):
+            raise ValueError(f"crop manifest 缺少 patch_index/crop_index 列：{manifest_path}")
+
+        for manifest_row in reader:
+            metadata: Dict[str, Any] = {
+                "parent_id": str(manifest_row["source_image_id"]),
+                "patch_index": int(manifest_row[patch_column]),
+                "source_relpath": str(manifest_row.get("source_relpath", "")),
+                "target_relpath": str(manifest_row["target_relpath"]),
+                "mapping_source": "manifest",
+            }
+            for column in ("split", "time_code", "row_index", "column_index", "left", "top", "right", "bottom"):
+                if column in manifest_row and manifest_row[column] != "":
+                    metadata[column] = manifest_row[column]
+
+            aliases: List[str] = []
+            aliases.extend(crop_path_keys(dataset_root / manifest_row["target_relpath"]))
+            aliases.extend(crop_path_keys(manifest_row["target_relpath"]))
+            if manifest_row.get("target_path"):
+                aliases.extend(crop_path_keys(manifest_row["target_path"]))
+            for alias in dict.fromkeys(aliases):
+                existing = index.get(alias)
+                if existing is not None and (
+                    existing["parent_id"], existing["patch_index"]
+                ) != (metadata["parent_id"], metadata["patch_index"]):
+                    raise ValueError(f"crop manifest 路径别名冲突：{alias}")
+                index[alias] = metadata
+    if not index:
+        raise ValueError(f"crop manifest 为空：{manifest_path}")
+    return index
+
+
+def resolve_crop_metadata(path: str, manifest_index: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    for key in crop_path_keys(path):
+        if key in manifest_index:
+            return copy.deepcopy(manifest_index[key])
+    parent_id, patch_index = parse_parent_and_crop(path)
+    return {
+        "parent_id": parent_id,
+        "patch_index": patch_index,
+        "source_relpath": "",
+        "target_relpath": "",
+        "mapping_source": "filename_fallback",
+    }
 
 
 def majority_vote(counts: Sequence[int]) -> int:
     return int(max(range(len(counts)), key=lambda i: (counts[i], -i)))
 
 
-def save_parent_diagnostics(run_dir: Path, records: Sequence[Dict[str, Any]], class_names: Sequence[str]) -> Dict[str, Any]:
-    out = run_dir / f"parent_vote_{DIAGNOSTIC_SPLIT}_{PREDICTION_STATE_KEY}"
+def save_parent_diagnostics(
+    run_dir: Path,
+    records: Sequence[Dict[str, Any]],
+    class_names: Sequence[str],
+    state_key: str,
+    manifest_index: Dict[str, Dict[str, Any]],
+) -> Dict[str, Any]:
+    out = run_dir / f"parent_vote_{DIAGNOSTIC_SPLIT}_{state_key}"
     out.mkdir(parents=True, exist_ok=True)
     groups: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    patch_rows: List[Dict[str, Any]] = []
     for row in records:
-        parent_id, crop_index = parse_parent_and_crop(row["path"])
-        row = copy.deepcopy(row)
-        row["parent_id"] = parent_id
-        row["crop_index"] = crop_index
-        groups[parent_id].append(row)
+        metadata = resolve_crop_metadata(str(row["path"]), manifest_index)
+        enriched = copy.deepcopy(row)
+        enriched.update(metadata)
+        enriched["patch_id"] = Path(str(row["path"])).stem
+        enriched["ground_truth"] = str(row["true_class"])
+        for class_name in class_names:
+            enriched[f"p{class_name}"] = float(row[f"prob_{class_name}"])
+        groups[str(enriched["parent_id"])].append(enriched)
+        patch_rows.append(enriched)
+
+    def patch_sort_key(row: Dict[str, Any]) -> Tuple[str, int]:
+        return str(row["parent_id"]), int(row["patch_index"])
+
+    patch_rows.sort(key=patch_sort_key)
+    patch_fields = [
+        "patch_id", "parent_id", "patch_index", "ground_truth", "true_label",
+        "pred_class", "pred_label", *[f"p{name}" for name in class_names],
+        "confidence", "source_relpath", "target_relpath", "mapping_source", "path",
+    ]
+    patch_export_rows = [
+        {field: row.get(field, "") for field in patch_fields}
+        for row in patch_rows
+    ]
+    write_rows(out / "patch_predictions.csv", patch_export_rows, patch_fields)
+
+    group_sizes = Counter(len(rows) for rows in groups.values())
+    invalid_parents: List[Dict[str, Any]] = []
+    for parent_id, rows in sorted(groups.items()):
+        patch_indices = [int(row["patch_index"]) for row in rows]
+        labels = sorted({int(row["true_label"]) for row in rows})
+        source_relpaths = sorted({str(row["source_relpath"]) for row in rows if row["source_relpath"]})
+        unique_indices = sorted(set(patch_indices))
+        contiguous = bool(unique_indices) and unique_indices == list(
+            range(unique_indices[0], unique_indices[0] + len(unique_indices))
+        )
+        if (
+            len(rows) != EXPECTED_PATCHES_PER_PARENT
+            or len(unique_indices) != EXPECTED_PATCHES_PER_PARENT
+            or not contiguous
+            or len(labels) != 1
+            or len(source_relpaths) > 1
+        ):
+            invalid_parents.append({
+                "parent_id": parent_id,
+                "n_patches": len(rows),
+                "n_unique_patch_indices": len(unique_indices),
+                "patch_indices": unique_indices,
+                "true_labels": labels,
+                "source_relpaths": source_relpaths,
+            })
+
+    mapping_source_counts = Counter(str(row["mapping_source"]) for row in patch_rows)
+    mapping_audit = {
+        "manifest_path": str(resolve_project_path(CROP_MANIFEST_PATH)),
+        "expected_patches_per_parent": EXPECTED_PATCHES_PER_PARENT,
+        "num_patch_records": len(patch_rows),
+        "num_parent_images": len(groups),
+        "patch_count_distribution": {str(key): value for key, value in sorted(group_sizes.items())},
+        "mapping_source_counts": dict(sorted(mapping_source_counts.items())),
+        "all_parents_valid": not invalid_parents,
+        "invalid_parents": invalid_parents,
+    }
+    save_json(out / "parent_mapping_audit.json", mapping_audit)
+    if invalid_parents:
+        examples = ", ".join(
+            f"{row['parent_id']}({row['n_patches']})" for row in invalid_parents[:10]
+        )
+        raise RuntimeError(
+            f"父图-patch 映射校验失败：{len(invalid_parents)} 张父图不是恰好 "
+            f"{EXPECTED_PATCHES_PER_PARENT} 个唯一连续 patch。示例：{examples}。"
+            f"详见 {out / 'parent_mapping_audit.json'}"
+        )
 
     parent_rows = []
     parent_true = []
@@ -533,13 +757,16 @@ def save_parent_diagnostics(run_dir: Path, records: Sequence[Dict[str, Any]], cl
     num_classes = len(class_names)
     for parent_id, rows in sorted(groups.items()):
         true_label = Counter(int(row["true_label"]) for row in rows).most_common(1)[0][0]
+        source_relpath = str(rows[0].get("source_relpath", ""))
         pred_counts = [0] * num_classes
         for row in rows:
             pred_counts[int(row["pred_label"])] += 1
         vote_label = majority_vote(pred_counts)
-        consistency = max(pred_counts) / max(1, len(rows))
+        consistency = max(pred_counts) / len(rows)
+        disagreement = 1.0 - consistency
         item: Dict[str, Any] = {
             "parent_id": parent_id,
+            "source_relpath": source_relpath,
             "true_class": class_names[true_label],
             "true_label": int(true_label),
             "n_crops": len(rows),
@@ -551,6 +778,8 @@ def save_parent_diagnostics(run_dir: Path, records: Sequence[Dict[str, Any]], cl
             "majority_label": vote_label,
             "consistency": consistency,
             "consistency_percent": f"{consistency * 100:.1f}%",
+            "disagreement": disagreement,
+            "disagreement_percent": f"{disagreement * 100:.1f}%",
             "vote_correct": int(vote_label == true_label),
             "vote_error_distance": abs(vote_label - true_label),
             "adjacent_vote_error": int(vote_label != true_label and abs(vote_label - true_label) == 1),
@@ -561,12 +790,36 @@ def save_parent_diagnostics(run_dir: Path, records: Sequence[Dict[str, Any]], cl
         parent_pred.append(int(vote_label))
 
     fields = [
-        "parent_id", "true_class", "true_label", "n_crops",
+        "parent_id", "source_relpath", "true_class", "true_label", "n_crops",
         *[f"pred_{name}" for name in class_names],
         "majority_class", "majority_label", "consistency", "consistency_percent",
+        "disagreement", "disagreement_percent",
         "vote_correct", "vote_error_distance", "adjacent_vote_error", "far_vote_error",
     ]
     write_rows(out / "parent_prediction_consistency.csv", parent_rows, fields)
+
+    disagreement_rows: List[Dict[str, Any]] = []
+    disagreement_by_stage: Dict[str, Any] = {}
+    for label, class_name in enumerate(class_names):
+        values = [
+            float(row["disagreement"])
+            for row in parent_rows
+            if int(row["true_label"]) == label
+        ]
+        stage_row: Dict[str, Any] = {
+            "ground_truth": class_name,
+            "true_label": label,
+            "num_parent_images": len(values),
+            "mean_disagreement": float(np.mean(values)) if values else None,
+            "std_disagreement": float(np.std(values)) if values else None,
+            "median_disagreement": float(np.median(values)) if values else None,
+            "min_disagreement": float(np.min(values)) if values else None,
+            "max_disagreement": float(np.max(values)) if values else None,
+        }
+        disagreement_rows.append(stage_row)
+        disagreement_by_stage[class_name] = stage_row
+    write_rows(out / "patch_disagreement_by_stage.csv", disagreement_rows)
+    save_json(out / "patch_disagreement_by_stage.json", disagreement_by_stage)
 
     crop_true = [int(row["true_label"]) for row in records]
     crop_pred = [int(row["pred_label"]) for row in records]
@@ -580,13 +833,19 @@ def save_parent_diagnostics(run_dir: Path, records: Sequence[Dict[str, Any]], cl
     save_confusion_csv(out / "parent_vote_confusion_raw.csv", parent_matrix, class_names)
     plot_confusion(out / "parent_vote_confusion_raw.png", parent_matrix, class_names, "Parent majority vote confusion", False)
     consistencies = [float(row["consistency"]) for row in parent_rows]
+    disagreements = [float(row["disagreement"]) for row in parent_rows]
     summary = {
         "split": DIAGNOSTIC_SPLIT,
-        "state_key": PREDICTION_STATE_KEY,
+        "state_key": state_key,
         "num_crop_records": len(records),
         "num_parent_images": len(parent_rows),
+        "expected_patches_per_parent": EXPECTED_PATCHES_PER_PARENT,
+        "all_parents_have_expected_patch_count": True,
         "mean_parent_consistency": float(np.mean(consistencies)) if consistencies else 0.0,
         "median_parent_consistency": float(np.median(consistencies)) if consistencies else 0.0,
+        "mean_patch_disagreement": float(np.mean(disagreements)) if disagreements else 0.0,
+        "median_patch_disagreement": float(np.median(disagreements)) if disagreements else 0.0,
+        "patch_disagreement_by_ground_truth": disagreement_by_stage,
         "parents_below_50pct_consistency": sum(1 for x in consistencies if x < 0.5),
         "crop_metrics": crop_metrics,
         "parent_vote_metrics": parent_metrics,
@@ -626,8 +885,14 @@ def save_contact_sheet(paths: Sequence[Path], target: Path, cols: int = 5) -> No
     sheet.save(target, quality=95)
 
 
-def save_high_confidence_errors(run_dir: Path, records: Sequence[Dict[str, Any]], class_names: Sequence[str]) -> Dict[str, Any]:
-    out = run_dir / f"high_confidence_errors_{DIAGNOSTIC_SPLIT}_{PREDICTION_STATE_KEY}"
+def save_high_confidence_errors(
+    run_dir: Path,
+    records: Sequence[Dict[str, Any]],
+    class_names: Sequence[str],
+    state_key: str,
+    manifest_index: Dict[str, Dict[str, Any]],
+) -> Dict[str, Any]:
+    out = run_dir / f"high_confidence_errors_{DIAGNOSTIC_SPLIT}_{state_key}"
     image_dir = out / "images"
     image_dir.mkdir(parents=True, exist_ok=True)
     errors = [row for row in records if int(row["true_label"]) != int(row["pred_label"])]
@@ -637,7 +902,9 @@ def save_high_confidence_errors(run_dir: Path, records: Sequence[Dict[str, Any]]
     annotated_paths = []
     for rank, row in enumerate(top, start=1):
         source = Path(row["path"])
-        parent_id, crop_index = parse_parent_and_crop(row["path"])
+        crop_metadata = resolve_crop_metadata(str(row["path"]), manifest_index)
+        parent_id = str(crop_metadata["parent_id"])
+        crop_index = int(crop_metadata["patch_index"])
         image_name = (
             f"rank{rank:03d}_true{row['true_class']}_pred{row['pred_class']}_"
             f"conf{float(row['confidence']):.3f}_{safe_name(parent_id)}_crop{crop_index}.jpg"
@@ -671,7 +938,7 @@ def save_high_confidence_errors(run_dir: Path, records: Sequence[Dict[str, Any]]
     save_contact_sheet(annotated_paths, out / "high_confidence_errors_contact_sheet.jpg")
     summary = {
         "split": DIAGNOSTIC_SPLIT,
-        "state_key": PREDICTION_STATE_KEY,
+        "state_key": state_key,
         "total_errors": len(errors),
         "exported_errors": len(top),
         "output_dir": str(out),
@@ -683,9 +950,17 @@ def save_high_confidence_errors(run_dir: Path, records: Sequence[Dict[str, Any]]
 def main() -> None:
     set_random_seed(RANDOM_SEED)
     device = resolve_device(DEVICE_NAME)
+    checkpoint_path = resolve_checkpoint_path()
+    if checkpoint_path is None and not RETRAIN_MODEL:
+        raise FileNotFoundError(
+            "未找到可用的 MixNet-S checkpoint，而 RETRAIN_MODEL=False。\n"
+            "请将 CHECKPOINT_PATH 设为已有 best_model.pth，或将 checkpoint 放入 "
+            "runs_01234_grid30_408/<mixnet_s_run>/best_model.pth。\n"
+            "如果确实要重新训练，再显式设置 RETRAIN_MODEL=True。"
+        )
     model_name_for_dir = str(load_yaml(MODEL_CONFIG_PATH).get("name", MODEL_CONFIG_PATH.stem))
     run_dir = make_run_dir(model_name_for_dir)
-    model_name, config = build_config(run_dir, device)
+    model_name, config = build_config(run_dir, device, use_pretrained=checkpoint_path is None)
 
     builder = ComponentBuilder(config, device, logger=None)
     train_loader, val_loader, test_loader = builder.build_dataloaders()
@@ -693,8 +968,6 @@ def main() -> None:
     loss_fn = builder.build_loss()
     if isinstance(loss_fn, nn.Module):
         loss_fn = loss_fn.to(device)
-    optimizer = builder.build_optimizer(model)
-    scheduler = builder.build_scheduler(optimizer)
 
     split_loaders = {"train": train_loader, "val": val_loader, "test": test_loader}
     if DIAGNOSTIC_SPLIT not in split_loaders:
@@ -702,67 +975,85 @@ def main() -> None:
     class_names = list(train_loader.dataset.classes)
     epochs = int(config.train.epochs)
     accumulation_steps = int(getattr(config.train, "accumulation_steps", 1) or 1)
+    manifest_index = load_crop_manifest(CROP_MANIFEST_PATH)
+    state_key = "checkpoint" if checkpoint_path is not None else PREDICTION_STATE_KEY
 
     print("=" * 100)
-    print("最佳epoch混淆矩阵 + 父图投票 + 高置信错误图诊断开始")
+    print("MixNet-S 30-patch 父图投票 + patch disagreement + 高置信错误图诊断开始")
     print(f"model: {model_name}")
     print(f"model_config: {MODEL_CONFIG_PATH}")
     print(f"dataset: {resolve_project_path(DATASET_ROOT)}")
+    print(f"crop_manifest: {resolve_project_path(CROP_MANIFEST_PATH)}")
+    print(f"checkpoint: {checkpoint_path if checkpoint_path is not None else '不使用（将重新训练）'}")
     print(f"classes: {class_names}")
     print(f"device: {device}")
-    print(f"epochs: {epochs}")
+    print(f"epochs: {0 if checkpoint_path is not None else epochs}")
     print(f"output: {run_dir}")
     print("=" * 100)
 
     history: List[Dict[str, Any]] = []
     best: Dict[str, Dict[str, Any]] = {}
-    for epoch in range(1, epochs + 1):
-        start = time.time()
-        train_metrics = train_one_epoch(model, train_loader, loss_fn, optimizer, device, accumulation_steps)
-        val_metrics, val_records = evaluate(model, val_loader, loss_fn, device, class_names)
-        save_epoch_top_loss_records(run_dir, epoch, val_records)
-        if scheduler is not None:
-            try:
-                scheduler.step()
-            except TypeError:
-                scheduler.step(val_metrics["loss"])
-        seconds = time.time() - start
-        row = {
-            "epoch": epoch,
-            "train_loss": train_metrics["loss"],
-            "train_acc": train_metrics["accuracy"],
-            "val_loss": val_metrics["loss"],
-            "val_acc": val_metrics["accuracy"],
-            "val_macro_f1": val_metrics["macro_f1"],
-            "val_mae": val_metrics["mae"],
-            "val_qwk": val_metrics["qwk"],
-            "val_max_sample_loss": val_metrics["max_sample_loss"],
-            "val_max_abs_logit": val_metrics["max_abs_logit"],
-            "val_p99_abs_logit": val_metrics["p99_abs_logit"],
-            "seconds": seconds,
+    checkpoint_metadata: Optional[Dict[str, Any]] = None
+    if checkpoint_path is not None:
+        checkpoint_metadata = load_model_checkpoint(model, checkpoint_path)
+        val_metrics, _val_records = evaluate(model, val_loader, loss_fn, device, class_names)
+        best["checkpoint"] = {
+            "epoch": int(checkpoint_metadata.get("epoch", 0)),
+            "metric_name": "accuracy",
+            "metric_value": float(val_metrics["accuracy"]),
+            "val_metrics": copy.deepcopy(val_metrics),
+            "state_dict": clone_state(model),
         }
-        history.append(row)
-        update_best(best, epoch, val_metrics, model)
-        print(
-            f"Epoch {epoch:03d}/{epochs} | "
-            f"train_loss={row['train_loss']:.5f} train_acc={row['train_acc']:.4f} | "
-            f"val_loss={row['val_loss']:.5f} val_acc={row['val_acc']:.4f} "
-            f"val_f1={row['val_macro_f1']:.4f} val_qwk={row['val_qwk']:.4f} | "
-            f"max_sample_loss={row['val_max_sample_loss']:.4f} "
-            f"max_abs_logit={row['val_max_abs_logit']:.4f} "
-            f"p99_abs_logit={row['val_p99_abs_logit']:.4f} | "
-            f"time={seconds:.1f}s"
-        )
+    else:
+        optimizer = builder.build_optimizer(model)
+        scheduler = builder.build_scheduler(optimizer)
+        for epoch in range(1, epochs + 1):
+            start = time.time()
+            train_metrics = train_one_epoch(model, train_loader, loss_fn, optimizer, device, accumulation_steps)
+            val_metrics, val_records = evaluate(model, val_loader, loss_fn, device, class_names)
+            save_epoch_top_loss_records(run_dir, epoch, val_records)
+            if scheduler is not None:
+                try:
+                    scheduler.step()
+                except TypeError:
+                    scheduler.step(val_metrics["loss"])
+            seconds = time.time() - start
+            row = {
+                "epoch": epoch,
+                "train_loss": train_metrics["loss"],
+                "train_acc": train_metrics["accuracy"],
+                "val_loss": val_metrics["loss"],
+                "val_acc": val_metrics["accuracy"],
+                "val_macro_f1": val_metrics["macro_f1"],
+                "val_mae": val_metrics["mae"],
+                "val_qwk": val_metrics["qwk"],
+                "val_max_sample_loss": val_metrics["max_sample_loss"],
+                "val_max_abs_logit": val_metrics["max_abs_logit"],
+                "val_p99_abs_logit": val_metrics["p99_abs_logit"],
+                "seconds": seconds,
+            }
+            history.append(row)
+            update_best(best, epoch, val_metrics, model)
+            print(
+                f"Epoch {epoch:03d}/{epochs} | "
+                f"train_loss={row['train_loss']:.5f} train_acc={row['train_acc']:.4f} | "
+                f"val_loss={row['val_loss']:.5f} val_acc={row['val_acc']:.4f} "
+                f"val_f1={row['val_macro_f1']:.4f} val_qwk={row['val_qwk']:.4f} | "
+                f"max_sample_loss={row['val_max_sample_loss']:.4f} "
+                f"max_abs_logit={row['val_max_abs_logit']:.4f} "
+                f"p99_abs_logit={row['val_p99_abs_logit']:.4f} | "
+                f"time={seconds:.1f}s"
+            )
+        save_history(run_dir, history)
 
-    save_history(run_dir, history)
     best_summary = save_best_confusions(run_dir, model, val_loader, loss_fn, device, class_names, best)
 
-    if PREDICTION_STATE_KEY not in best:
-        raise RuntimeError(f"找不到 PREDICTION_STATE_KEY={PREDICTION_STATE_KEY} 对应的最佳状态。")
-    model.load_state_dict(best[PREDICTION_STATE_KEY]["state_dict"])
+    if state_key not in best:
+        raise RuntimeError(f"找不到 state_key={state_key} 对应的模型状态。")
+    model.load_state_dict(best[state_key]["state_dict"])
     diag_metrics, diag_records = evaluate(model, split_loaders[DIAGNOSTIC_SPLIT], loss_fn, device, class_names)
-    parent_summary = save_parent_diagnostics(run_dir, diag_records, class_names)
-    error_summary = save_high_confidence_errors(run_dir, diag_records, class_names)
+    parent_summary = save_parent_diagnostics(run_dir, diag_records, class_names, state_key, manifest_index)
+    error_summary = save_high_confidence_errors(run_dir, diag_records, class_names, state_key, manifest_index)
 
     final_summary = {
         "model_name": model_name,
@@ -772,10 +1063,11 @@ def main() -> None:
         "input_image_size": INPUT_IMAGE_SIZE,
         "class_names": class_names,
         "device": str(device),
-        "epochs": epochs,
+        "epochs": 0 if checkpoint_path is not None else epochs,
+        "checkpoint": checkpoint_metadata,
         "best_epoch_summary": best_summary,
         "diagnostic_split": DIAGNOSTIC_SPLIT,
-        "prediction_state_key": PREDICTION_STATE_KEY,
+        "prediction_state_key": state_key,
         "diagnostic_split_metrics": diag_metrics,
         "parent_summary": parent_summary,
         "high_confidence_error_summary": error_summary,
@@ -785,8 +1077,8 @@ def main() -> None:
     print("=" * 100)
     print("诊断完成")
     print(f"最佳epoch混淆矩阵：{run_dir / 'best_epoch_confusion_matrices'}")
-    print(f"父图一致率/投票：{run_dir / f'parent_vote_{DIAGNOSTIC_SPLIT}_{PREDICTION_STATE_KEY}'}")
-    print(f"高置信错误图：{run_dir / f'high_confidence_errors_{DIAGNOSTIC_SPLIT}_{PREDICTION_STATE_KEY}'}")
+    print(f"父图一致率/投票：{run_dir / f'parent_vote_{DIAGNOSTIC_SPLIT}_{state_key}'}")
+    print(f"高置信错误图：{run_dir / f'high_confidence_errors_{DIAGNOSTIC_SPLIT}_{state_key}'}")
     print(f"总览JSON：{run_dir / 'diagnostics_summary.json'}")
     for key, record in best.items():
         print(f"{key}: epoch={record['epoch']}, {record['metric_name']}={record['metric_value']:.6f}")

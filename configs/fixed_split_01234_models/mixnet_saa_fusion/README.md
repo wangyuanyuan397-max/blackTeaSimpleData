@@ -13,26 +13,19 @@ The four targets are:
 
 The queue contains one official baseline, 16 residual-SAA combinations
 (`4 targets x 2 expansions x 2 inter-group settings`), four pure replacement
-runs, and four bounded modulation runs. `saa11_res_p3_mid_e2_g1` is the
-recommended first single run.
+runs, and four bounded modulation runs. `saa11_res_p3_mid_e2_g1` was the
+pre-screening candidate recorded before these results were available.
 
 SAA branch heads are always inferred from the unmodified MixConv kernel list.
 For timm 1.0.25, official MixNet-S uses two through five heads depending on the
 block; no three-head assumption is hard-coded.
 
-List or validate the queue:
-
-```powershell
-python tools\train_batch_01234.py --list-models
-python tools\train_batch_01234.py --dry-run --device cpu
-```
-
-Run the recommended configuration or the complete queue:
-
-```powershell
-python tools\train_batch_01234.py --models saa11_res_p3_mid_e2_g1
-python tools\train_batch_01234.py
-```
+The original 25 configurations remain in this directory as the completed
+screening design. `tools/train_batch_01234.py` now targets the follow-up
+three-seed queue under `seed_reproduction/`; see its README for the current run
+commands and output files. The parent-directory YAML files are retained as an
+immutable record of the completed screen and are no longer the active runner
+queue.
 
 All training, data, optimizer, scheduler, early-stopping, pretrained-weight,
 and split settings come from

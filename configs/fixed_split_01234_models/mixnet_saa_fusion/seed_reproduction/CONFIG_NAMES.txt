@@ -1,0 +1,13 @@
+# Three-seed replication queue. Keep each seed's baseline and candidates adjacent.
+saa_rep_baseline_seed42
+saa_rep_down_e1_g4_seed42
+saa_rep_down_e2_g1_seed42
+saa_rep_mid_e1_g1_seed42
+saa_rep_baseline_seed2026
+saa_rep_down_e1_g4_seed2026
+saa_rep_down_e2_g1_seed2026
+saa_rep_mid_e1_g1_seed2026
+saa_rep_baseline_seed3407
+saa_rep_down_e1_g4_seed3407
+saa_rep_down_e2_g1_seed3407
+saa_rep_mid_e1_g1_seed3407

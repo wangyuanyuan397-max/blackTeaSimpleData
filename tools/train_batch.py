@@ -809,6 +809,120 @@ def save_probabilistic_prediction_csv(trainer: Trainer) -> Dict[str, Any]:
     }
 
 
+def save_test_prediction_csv(trainer: Trainer) -> Dict[str, Any]:
+    '''保存与正式测试/TTA路径一致的逐样本预测，供配对统计检验使用。'''
+    class_names = [str(name) for name in trainer.test_loader.dataset.classes]
+    model = trainer.model
+    was_training = model.training
+    model.eval()
+    rows: List[Dict[str, Any]] = []
+    score_names: List[str] | None = None
+    classification_probabilities = False
+    correct_count = 0
+
+    try:
+        with torch.no_grad():
+            for batch in trainer.test_loader:
+                images = batch[0].to(trainer.device)
+                labels = batch[1].detach().cpu()
+                paths = batch[2] if len(batch) >= 3 else [''] * int(labels.shape[0])
+                outputs, sample_count, _ = trainer.evaluator._forward_with_optional_tta(
+                    images
+                )
+                primary_outputs = outputs[0] if isinstance(outputs, tuple) else outputs
+                if not torch.is_tensor(primary_outputs) or primary_outputs.ndim != 2:
+                    return {}
+                if int(primary_outputs.shape[0]) != int(sample_count):
+                    raise ValueError(
+                        '逐样本预测导出时输出 batch 大小不一致：'
+                        f'outputs={tuple(primary_outputs.shape)}, sample_count={sample_count}'
+                    )
+
+                scores = primary_outputs.detach().cpu()
+                predictions = trainer.strategy.get_predictions(outputs).detach().cpu()
+                current_score_names = (
+                    class_names
+                    if int(scores.shape[1]) == len(class_names)
+                    else [str(index) for index in range(int(scores.shape[1]))]
+                )
+                if score_names is None:
+                    score_names = current_score_names
+                    classification_probabilities = score_names == class_names
+                elif current_score_names != score_names:
+                    raise ValueError('逐样本预测导出时不同 batch 的输出维度不一致。')
+                probabilities = (
+                    torch.softmax(scores, dim=1)
+                    if classification_probabilities
+                    else None
+                )
+
+                for index, path in enumerate(paths):
+                    true_label = int(labels[index].item())
+                    pred_label = int(predictions[index].item())
+                    correct = int(true_label == pred_label)
+                    correct_count += correct
+                    row: Dict[str, Any] = {
+                        'image_path': str(path),
+                        'true_label': true_label,
+                        'true_class': (
+                            class_names[true_label]
+                            if 0 <= true_label < len(class_names)
+                            else str(true_label)
+                        ),
+                        'pred_label': pred_label,
+                        'pred_class': (
+                            class_names[pred_label]
+                            if 0 <= pred_label < len(class_names)
+                            else str(pred_label)
+                        ),
+                        'correct': correct,
+                        'abs_error': abs(true_label - pred_label),
+                        'max_probability': (
+                            float(probabilities[index].max().item())
+                            if probabilities is not None
+                            else None
+                        ),
+                    }
+                    for score_index, score_name in enumerate(score_names):
+                        row[f'logit_{score_name}'] = float(
+                            scores[index, score_index].item()
+                        )
+                        if probabilities is not None:
+                            row[f'prob_{score_name}'] = float(
+                                probabilities[index, score_index].item()
+                            )
+                    rows.append(row)
+    finally:
+        model.train(was_training)
+
+    if not rows or score_names is None:
+        return {}
+    fieldnames = [
+        'image_path',
+        'true_label',
+        'true_class',
+        'pred_label',
+        'pred_class',
+        'correct',
+        'abs_error',
+        'max_probability',
+    ]
+    fieldnames.extend(f'logit_{name}' for name in score_names)
+    if classification_probabilities:
+        fieldnames.extend(f'prob_{name}' for name in score_names)
+
+    csv_path = trainer.output_dir / 'test_predictions.csv'
+    with csv_path.open('w', encoding='utf-8-sig', newline='') as file:
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    return {
+        'test_predictions_csv': str(csv_path),
+        'test_predictions_count': len(rows),
+        'test_predictions_accuracy': correct_count / len(rows),
+    }
+
+
 def evaluate_best_checkpoint(
     trainer: Trainer,
     training_time_seconds: float,
@@ -878,6 +992,7 @@ def evaluate_best_checkpoint(
     result.update(
         measure_inference_time(trainer.model, trainer.test_loader, trainer.device)
     )
+    result.update(save_test_prediction_csv(trainer))
     result.update(save_probabilistic_prediction_csv(trainer))
     result.update(save_ordinal_representation_artifacts(trainer))
     return result
@@ -987,6 +1102,7 @@ def _mixnet_saa_config_columns(result: Dict[str, Any]) -> Dict[str, Any]:
     saa_config = backbone.get('mixconv_saa') or {}
     if not saa_config:
         return {
+            'random_seed': model_config.get('random_seed'),
             'saa_mode': 'baseline',
             'saa_target': None,
             'saa_expansion': None,
@@ -998,6 +1114,7 @@ def _mixnet_saa_config_columns(result: Dict[str, Any]) -> Dict[str, Any]:
         }
     saa_summary = (result.get('metrics') or {}).get('mixnet_saa') or {}
     return {
+        'random_seed': model_config.get('random_seed'),
         'saa_mode': saa_config.get('mode'),
         'saa_target': saa_config.get('target'),
         'saa_expansion': saa_config.get('expansion'),
@@ -1080,6 +1197,12 @@ def write_ablation_csv_files(
         result
         for result in results
         if 'mixnet_saa_fusion/' in str(result.get('config_path', ''))
+    ]
+    mixnet_saa_seed_results = [
+        result
+        for result in mixnet_saa_fusion_results
+        if 'mixnet_saa_fusion/seed_reproduction/'
+        in str(result.get('config_path', ''))
     ]
     written_paths: List[Path] = []
     for filename, group_results, fold_name in (
@@ -1188,6 +1311,67 @@ def write_ablation_csv_files(
         seed_summary_path = runs_root / 'seed_reproduction_summary.csv'
         _write_csv_rows(seed_summary_path, seed_rows)
         written_paths.append(seed_summary_path)
+
+    saa_seed_groups: Dict[str, List[Dict[str, Any]]] = {}
+    for result in mixnet_saa_seed_results:
+        if result.get('status') != 'success':
+            continue
+        model_name = str(result.get('model_name', ''))
+        model_family = re.sub(r'_seed\d+$', '', model_name)
+        saa_seed_groups.setdefault(model_family, []).append(result)
+    saa_seed_rows = []
+    saa_seed_metric_names = (
+        'accuracy',
+        'macro_f1',
+        'mae',
+        'qwk',
+        'plus_minus_one_accuracy',
+        'best_validation_accuracy',
+        'train_val_accuracy_gap',
+        'far_error_count',
+        'parameters_total',
+        'flops_g',
+        'training_time_seconds',
+    )
+    for model_family, family_results in sorted(saa_seed_groups.items()):
+        config_columns = [
+            _mixnet_saa_config_columns(result)
+            for result in family_results
+        ]
+        seeds = sorted(
+            int(columns['random_seed'])
+            for columns in config_columns
+            if columns.get('random_seed') is not None
+        )
+        structure = config_columns[0]
+        row = {
+            'batch_timestamp': batch_timestamp,
+            'model_family': model_family,
+            'seeds': ','.join(str(seed) for seed in seeds),
+            'seed_count': len(family_results),
+            'complete_three_seed_run': len(family_results) == 3,
+            'saa_mode': structure.get('saa_mode'),
+            'saa_target': structure.get('saa_target'),
+            'saa_expansion': structure.get('saa_expansion'),
+            'saa_inter_groups': structure.get('saa_inter_groups'),
+        }
+        for metric_name in saa_seed_metric_names:
+            values = [
+                float(result['metrics'][metric_name])
+                for result in family_results
+                if (result.get('metrics') or {}).get(metric_name) is not None
+            ]
+            row[f'{metric_name}_mean'] = (
+                statistics.mean(values) if values else None
+            )
+            row[f'{metric_name}_std'] = (
+                statistics.stdev(values) if len(values) >= 2 else 0.0
+            )
+        saa_seed_rows.append(row)
+    if saa_seed_rows:
+        saa_seed_summary_path = runs_root / 'mixnet_saa_seed_reproduction_summary.csv'
+        _write_csv_rows(saa_seed_summary_path, saa_seed_rows)
+        written_paths.append(saa_seed_summary_path)
     return written_paths
 
 
