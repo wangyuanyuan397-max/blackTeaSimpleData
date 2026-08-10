@@ -55,7 +55,7 @@ OUTPUT_ROOT = Path("temp/useOnce/best_epoch_parent_diagnostics_408_runs")
 # model_state_dict/state_dict/model 键的 checkpoint。None 时会尝试在
 # runs_01234_grid30_408 下自动寻找最新的 MixNet-S best_model.pth。
 CHECKPOINT_PATH: Optional[Path] = None
-RETRAIN_MODEL = False
+RETRAIN_MODEL = True
 
 DEVICE_NAME = "auto"  # auto / cuda / cpu
 EPOCHS_OVERRIDE: Optional[int] = None  # 快速试脚本可改成 2；正式诊断保持 None
@@ -950,7 +950,8 @@ def save_high_confidence_errors(
 def main() -> None:
     set_random_seed(RANDOM_SEED)
     device = resolve_device(DEVICE_NAME)
-    checkpoint_path = resolve_checkpoint_path()
+    # RETRAIN_MODEL=True 时强制从头训练，不搜索、不加载任何旧权重。
+    checkpoint_path = None if RETRAIN_MODEL else resolve_checkpoint_path()
     if checkpoint_path is None and not RETRAIN_MODEL:
         raise FileNotFoundError(
             "未找到可用的 MixNet-S checkpoint，而 RETRAIN_MODEL=False。\n"
