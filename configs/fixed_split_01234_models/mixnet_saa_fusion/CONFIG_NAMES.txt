@@ -1,0 +1,26 @@
+# Queue for tools/train_batch_01234.py: baseline + 24 SAA ablations.
+saa00_mixnet_s_baseline
+saa01_res_p1_all_e1_g1
+saa02_res_p1_all_e1_g4
+saa03_res_p1_all_e2_g1
+saa04_res_p1_all_e2_g4
+saa05_res_p2_down_e1_g1
+saa06_res_p2_down_e1_g4
+saa07_res_p2_down_e2_g1
+saa08_res_p2_down_e2_g4
+saa09_res_p3_mid_e1_g1
+saa10_res_p3_mid_e1_g4
+saa11_res_p3_mid_e2_g1
+saa12_res_p3_mid_e2_g4
+saa13_res_p4_late_e1_g1
+saa14_res_p4_late_e1_g4
+saa15_res_p4_late_e2_g1
+saa16_res_p4_late_e2_g4
+saa17_replace_p1_all_e2_g1
+saa18_replace_p2_down_e2_g1
+saa19_replace_p3_mid_e2_g1
+saa20_replace_p4_late_e2_g1
+saa21_mod_p1_all_e2_g1
+saa22_mod_p2_down_e2_g1
+saa23_mod_p3_mid_e2_g1
+saa24_mod_p4_late_e2_g1

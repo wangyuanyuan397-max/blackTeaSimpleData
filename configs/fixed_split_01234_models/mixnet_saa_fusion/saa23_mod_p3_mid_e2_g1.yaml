@@ -1,0 +1,11 @@
+name: saa23_mod_p3_mid_e2_g1
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_saa
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    mixconv_saa: {enabled: true, target: mid, keep_original_kernels: true, expansion: 2, inter_groups: 1, mode: modulation, gamma_init: 0.1, heads: auto}
+  head: {type: linear, drop_rate: 0.0}

@@ -1,0 +1,11 @@
+name: saa06_res_p2_down_e1_g4
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_saa
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    mixconv_saa: {enabled: true, target: down, keep_original_kernels: true, expansion: 1, inter_groups: 4, mode: residual, gamma_init: 0.1, heads: auto}
+  head: {type: linear, drop_rate: 0.0}

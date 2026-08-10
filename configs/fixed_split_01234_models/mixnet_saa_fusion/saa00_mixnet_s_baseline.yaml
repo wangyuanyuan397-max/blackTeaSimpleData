@@ -1,0 +1,12 @@
+name: saa00_mixnet_s_baseline
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: timm
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+  head:
+    type: linear
+    drop_rate: 0.0

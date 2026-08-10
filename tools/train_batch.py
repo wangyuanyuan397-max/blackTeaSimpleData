@@ -839,6 +839,14 @@ def evaluate_best_checkpoint(
         per_class_accuracy[class_name] = class_correct / class_total if class_total else 0.0
 
     result = to_builtin(test_metrics)
+    best_checkpoint_metrics = to_builtin(checkpoint.get("metrics", {}))
+    best_train_accuracy = best_checkpoint_metrics.get("train_acc")
+    best_validation_accuracy = best_checkpoint_metrics.get("val_acc")
+    train_val_accuracy_gap = None
+    if best_train_accuracy is not None and best_validation_accuracy is not None:
+        train_val_accuracy_gap = float(best_train_accuracy) - float(
+            best_validation_accuracy
+        )
     result.update(
         {
             "class_names": class_names,
@@ -846,9 +854,21 @@ def evaluate_best_checkpoint(
             "confusion_matrix": to_builtin(confusion_matrix),
             "num_samples": int(confusion_matrix.sum()),
             "best_epoch": int(checkpoint.get("epoch", -1)) + 1,
-            "best_validation_metrics": to_builtin(checkpoint.get("metrics", {})),
+            "best_validation_metrics": best_checkpoint_metrics,
+            "best_train_accuracy": best_train_accuracy,
+            "best_validation_accuracy": best_validation_accuracy,
+            "train_val_accuracy_gap": train_val_accuracy_gap,
         }
     )
+    evaluated_model = (
+        trainer.model.module
+        if hasattr(trainer.model, "module")
+        else trainer.model
+    )
+    evaluated_backbone = getattr(evaluated_model, "backbone", None)
+    saa_summary = getattr(evaluated_backbone, "saa_summary", None)
+    if callable(saa_summary):
+        result["mixnet_saa"] = to_builtin(saa_summary())
     result['training_time_seconds'] = training_time_seconds
     result.update(compute_classification_details(confusion_matrix, class_names))
     image_size = int(getattr(trainer.config.data, 'image_size', 224) or 224)
@@ -909,6 +929,10 @@ def _result_to_csv_row(
         'macro_f1': metrics.get('macro_f1'),
         'mae': metrics.get('mae'),
         'qwk': metrics.get('qwk'),
+        'best_epoch': metrics.get('best_epoch'),
+        'best_train_accuracy': metrics.get('best_train_accuracy'),
+        'best_validation_accuracy': metrics.get('best_validation_accuracy'),
+        'train_val_accuracy_gap': metrics.get('train_val_accuracy_gap'),
         'parameters_total': metrics.get('parameters_total'),
         'parameters_trainable': metrics.get('parameters_trainable'),
         'flops': metrics.get('flops'),
@@ -951,6 +975,41 @@ def _result_to_csv_row(
     if fold_name is not None:
         row['fold'] = fold_name
     return row
+
+
+def _mixnet_saa_config_columns(result: Dict[str, Any]) -> Dict[str, Any]:
+    '''Extract SAA structural variables from a batch model YAML for its CSV row.'''
+    config_path = result.get('config_path')
+    if not config_path:
+        return {}
+    model_config = load_yaml_mapping(Path(str(config_path)), 'SAA 模型配置')
+    backbone = ((model_config.get('model') or {}).get('backbone') or {})
+    saa_config = backbone.get('mixconv_saa') or {}
+    if not saa_config:
+        return {
+            'saa_mode': 'baseline',
+            'saa_target': None,
+            'saa_expansion': None,
+            'saa_inter_groups': None,
+            'saa_gamma_init': None,
+            'saa_heads': None,
+            'saa_modified_block_count': 0,
+            'saa_applied_blocks': None,
+        }
+    saa_summary = (result.get('metrics') or {}).get('mixnet_saa') or {}
+    return {
+        'saa_mode': saa_config.get('mode'),
+        'saa_target': saa_config.get('target'),
+        'saa_expansion': saa_config.get('expansion'),
+        'saa_inter_groups': saa_config.get('inter_groups'),
+        'saa_gamma_init': saa_config.get('gamma_init'),
+        'saa_heads': saa_config.get('heads'),
+        'saa_modified_block_count': saa_summary.get('modified_block_count'),
+        'saa_applied_blocks': json.dumps(
+            list((saa_summary.get('applied_blocks') or {}).keys()),
+            ensure_ascii=False,
+        ),
+    }
 
 
 def _write_csv_rows(path: Path, rows: List[Dict[str, Any]]) -> None:
@@ -1017,6 +1076,11 @@ def write_ablation_csv_files(
         for result in results
         if 'FinalFeatureRefinement/' in str(result.get('config_path', ''))
     ]
+    mixnet_saa_fusion_results = [
+        result
+        for result in results
+        if 'mixnet_saa_fusion/' in str(result.get('config_path', ''))
+    ]
     written_paths: List[Path] = []
     for filename, group_results, fold_name in (
         ('multiscale_ablation_summary.csv', multiscale_results, None),
@@ -1076,11 +1140,18 @@ def write_ablation_csv_files(
             final_feature_refinement_results,
             'fixed_split',
         ),
+        (
+            'mixnet_saa_fusion_summary.csv',
+            mixnet_saa_fusion_results,
+            None,
+        ),
     ):
-        rows = [
-            _result_to_csv_row(result, batch_timestamp, fold_name)
-            for result in group_results
-        ]
+        rows = []
+        for result in group_results:
+            row = _result_to_csv_row(result, batch_timestamp, fold_name)
+            if filename == 'mixnet_saa_fusion_summary.csv':
+                row.update(_mixnet_saa_config_columns(result))
+            rows.append(row)
         if rows:
             path = runs_root / filename
             _write_csv_rows(path, rows)
@@ -1134,6 +1205,10 @@ def render_metric_cards(metrics: Dict[str, Any]) -> str:
     preferred_keys = ("accuracy", "loss", "mae", "qwk", "plus_minus_one_accuracy")
     preferred_keys = preferred_keys + (
         'macro_f1',
+        'best_epoch',
+        'best_train_accuracy',
+        'best_validation_accuracy',
+        'train_val_accuracy_gap',
         'parameters_total',
         'parameters_trainable',
         'flops_g',

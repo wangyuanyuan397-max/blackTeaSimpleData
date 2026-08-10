@@ -24,6 +24,7 @@ from .mixnet_search import MixNetSSearchBackbone
 from .mixnet_deformable import MixNetSDeformableBackbone, MixNetSFourierDeformableBackbone
 from .mixnet_fourier import MixNetSFourierBackbone
 from .mixnet_litemono import MixNetSLiteMonoBackbone
+from .mixnet_saa import MixNetSSAABackbone
 from .adgbc import TimmADGBCBackbone
 from .vim import VimSmallMiddleClsTokenBackbone
 
@@ -57,6 +58,7 @@ __all__ = [
     'MixNetSFourierDeformableBackbone',
     'MixNetSFourierBackbone',
     'MixNetSLiteMonoBackbone',
+    'MixNetSSAABackbone',
     'TimmADGBCBackbone',
     'VimSmallMiddleClsTokenBackbone',
     "MambaOutTinyCEBackbone",
