@@ -1,0 +1,31 @@
+id: KE-V2-02
+experiment_name: ke_v2_sr09_g3_e10
+
+knowledge_evolution:
+  enabled: true
+  method: KELS
+  split_rate: 0.9
+  generations: 3
+  epochs_per_generation: 10
+  transition_source: previous_generation_best_validation
+  fixed_mask: true
+  kels_reset:
+    enabled: true
+    source: fresh_random_model
+  batch_norm:
+    policy: fully_inherited
+  bias:
+    policy: fully_inherited
+  optimizer:
+    restart_each_generation: true
+  scheduler:
+    restart_each_generation: true
+  early_stopping:
+    enabled: false
+  bn_recalibration:
+    enabled: false
+    max_batches: null
+  checkpoints:
+    keep_best: true
+    keep_final: true
+

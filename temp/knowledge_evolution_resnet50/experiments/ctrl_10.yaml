@@ -1,0 +1,29 @@
+id: CTRL-10
+experiment_name: ke_control_g3_e10
+
+knowledge_evolution:
+  enabled: true
+  method: KELS
+  generations: 3
+  epochs_per_generation: 10
+  transition_source: previous_generation_best_validation
+  fixed_mask: false
+  kels_reset:
+    enabled: false
+  batch_norm:
+    policy: fully_inherited
+  bias:
+    policy: fully_inherited
+  optimizer:
+    restart_each_generation: true
+  scheduler:
+    restart_each_generation: true
+  early_stopping:
+    enabled: false
+  bn_recalibration:
+    enabled: false
+    max_batches: null
+  checkpoints:
+    keep_best: true
+    keep_final: true
+

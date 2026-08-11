@@ -27,8 +27,8 @@ data:
     image_size: 408
 
 train:
-  # One generation. The runner repeats this exact budget per generation.
-  epochs: 30
+  # Matrix YAMLs override this with 10 or 15; this safe default is one V2 generation.
+  epochs: 10
   batch_size: 32
   val_batch_size: 64
   test_batch_size: 64
@@ -46,7 +46,8 @@ train:
   tta_topk: 0
   tta_compare: false
   tta_compare_modes: []
-  keep_pth_files: false
+  # KE-V2 always keeps best_val.pth; matrix configs also keep final.pth by default.
+  keep_pth_files: true
 
 optimizer:
   type: adamw
@@ -61,4 +62,3 @@ scheduler:
 loss:
   type: cross_entropy
   label_smoothing: 0.0
-

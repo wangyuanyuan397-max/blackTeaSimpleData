@@ -166,6 +166,32 @@ def summarize_kels_masks(
     }
 
 
+def validation_checkpoint_key(metrics: Mapping[str, Any]) -> tuple[float, float, float]:
+    """Rank validation checkpoints by acc, then QWK, then lower loss."""
+
+    def metric(*names: str, default: float) -> float:
+        for name in names:
+            value = metrics.get(name)
+            if value is not None:
+                return float(value)
+        return float(default)
+
+    accuracy = metric("val_acc", "val_accuracy", "accuracy", default=float("-inf"))
+    qwk = metric("val_qwk", "qwk", default=float("-inf"))
+    loss = metric("val_loss", "loss", default=float("inf"))
+    return accuracy, qwk, -loss
+
+
+def is_better_validation_checkpoint(
+    candidate: Mapping[str, Any],
+    current_best: Mapping[str, Any] | None,
+) -> bool:
+    """Apply the fixed KE-V2 checkpoint tie-break deterministically."""
+    if current_best is None:
+        return True
+    return validation_checkpoint_key(candidate) > validation_checkpoint_key(current_best)
+
+
 @contextmanager
 def _isolated_torch_seed(seed: int, uses_cuda: bool):
     """Use a deterministic reset seed without consuming the caller's RNG."""
@@ -259,3 +285,76 @@ def reset_reset_hypothesis(
         "classifier_bias_policy": "fully_inherited",
     }
 
+
+@torch.no_grad()
+def reset_reset_hypothesis_from_fresh_model(
+    model: nn.Module,
+    fresh_model: nn.Module,
+    masks: Mapping[str, torch.Tensor],
+) -> dict[str, Any]:
+    """Copy RESET weights from a normally initialized, non-pretrained model.
+
+    Only Conv2d/Linear weights are mixed. Biases and every BatchNorm tensor in
+    ``model`` remain untouched. The fresh model must have exactly the same KELS
+    target names and weight shapes.
+    """
+    validate_kels_masks(model, masks)
+    validate_kels_masks(fresh_model, masks)
+    targets = dict(iter_kels_targets(model))
+    fresh_targets = dict(iter_kels_targets(fresh_model))
+
+    fit_parameters = 0
+    reset_parameters = 0
+    reset_changed_parameters = 0
+    preserved_bias_tensors = 0
+    max_fit_abs_difference = 0.0
+
+    for name, module in targets.items():
+        fresh_module = fresh_targets[name]
+        mask = masks[name].to(device=module.weight.device, non_blocking=True)
+        old_weight = module.weight.detach().clone()
+        old_bias = module.bias.detach().clone() if module.bias is not None else None
+        fresh_weight = fresh_module.weight.detach().to(
+            device=module.weight.device,
+            dtype=module.weight.dtype,
+            non_blocking=True,
+        )
+
+        module.weight.copy_(torch.where(mask, old_weight, fresh_weight))
+
+        fit_count = int(mask.sum().item())
+        reset_count = int(mask.numel() - fit_count)
+        fit_parameters += fit_count
+        reset_parameters += reset_count
+        if fit_count:
+            fit_difference = (module.weight[mask] - old_weight[mask]).abs().max().item()
+            max_fit_abs_difference = max(max_fit_abs_difference, float(fit_difference))
+        if reset_count:
+            reset_changed_parameters += int(
+                torch.count_nonzero(module.weight[~mask] != old_weight[~mask]).item()
+            )
+        if old_bias is not None:
+            if not torch.equal(module.bias.detach(), old_bias):
+                raise RuntimeError(f"Bias changed during fresh-model reset for {name!r}.")
+            preserved_bias_tensors += 1
+
+    if max_fit_abs_difference != 0.0:
+        raise RuntimeError(
+            "FIT weights changed during a fresh-model generation reset; "
+            f"max_abs_difference={max_fit_abs_difference}."
+        )
+
+    return {
+        "reset_source": "fresh_random_model_pretrained_false",
+        "target_layer_count": len(targets),
+        "fit_parameters_preserved": fit_parameters,
+        "reset_parameters_requested": reset_parameters,
+        "reset_parameters_changed": reset_changed_parameters,
+        "reset_changed_fraction": (
+            reset_changed_parameters / reset_parameters if reset_parameters else 0.0
+        ),
+        "preserved_bias_tensors": preserved_bias_tensors,
+        "max_fit_abs_difference": max_fit_abs_difference,
+        "batch_norm_policy": "fully_inherited",
+        "classifier_bias_policy": "fully_inherited",
+    }

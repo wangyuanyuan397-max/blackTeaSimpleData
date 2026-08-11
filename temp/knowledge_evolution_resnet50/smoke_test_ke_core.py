@@ -13,7 +13,13 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-from ke_core import create_kels_masks, reset_reset_hypothesis, summarize_kels_masks
+from ke_core import (
+    create_kels_masks,
+    is_better_validation_checkpoint,
+    reset_reset_hypothesis,
+    reset_reset_hypothesis_from_fresh_model,
+    summarize_kels_masks,
+)
 
 
 class TinyNetwork(nn.Module):
@@ -59,6 +65,51 @@ def main() -> None:
     assert report["reset_changed_fraction"] > 0.99
     assert model(torch.randn(2, 3, 16, 16)).shape == (2, 5)
 
+    # V2 copies RESET weights from a complete fresh model while preserving BN/bias.
+    torch.manual_seed(8)
+    v2_model = TinyNetwork()
+    v2_masks = create_kels_masks(v2_model, split_rate=0.5)
+    v2_old_state = {
+        name: value.detach().clone() for name, value in v2_model.state_dict().items()
+    }
+    torch.manual_seed(2028)
+    fresh_model = TinyNetwork()
+    v2_report = reset_reset_hypothesis_from_fresh_model(
+        v2_model,
+        fresh_model,
+        v2_masks,
+    )
+    v2_modules = dict(v2_model.named_modules())
+    fresh_modules = dict(fresh_model.named_modules())
+    for name, mask in v2_masks.items():
+        assert torch.equal(
+            v2_modules[name].weight.detach()[mask],
+            v2_old_state[f"{name}.weight"][mask],
+        )
+        assert torch.equal(
+            v2_modules[name].weight.detach()[~mask],
+            fresh_modules[name].weight.detach()[~mask],
+        )
+    for state_name in ("bn1.weight", "bn1.bias", "bn1.running_mean", "bn1.running_var"):
+        assert torch.equal(v2_model.state_dict()[state_name], v2_old_state[state_name])
+    assert torch.equal(v2_model.fc.bias.detach(), v2_old_state["fc.bias"])
+    assert v2_report["reset_changed_fraction"] > 0.99
+
+    # Fixed tie-break: accuracy > QWK > lower validation loss.
+    best = {"val_acc": 0.75, "val_qwk": 0.92, "val_loss": 0.8}
+    assert is_better_validation_checkpoint(
+        {"val_acc": 0.76, "val_qwk": 0.1, "val_loss": 9.0}, best
+    )
+    assert is_better_validation_checkpoint(
+        {"val_acc": 0.75, "val_qwk": 0.93, "val_loss": 9.0}, best
+    )
+    assert is_better_validation_checkpoint(
+        {"val_acc": 0.75, "val_qwk": 0.92, "val_loss": 0.7}, best
+    )
+    assert not is_better_validation_checkpoint(
+        {"val_acc": 0.75, "val_qwk": 0.92, "val_loss": 0.9}, best
+    )
+
     summary = summarize_kels_masks(model, masks, split_rate=0.5)
     print(
         "KE core smoke test passed: "
@@ -70,4 +121,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
