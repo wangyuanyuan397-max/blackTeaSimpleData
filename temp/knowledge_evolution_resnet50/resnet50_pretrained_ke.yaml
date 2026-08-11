@@ -1,0 +1,12 @@
+name: resnet50_pretrained_ke
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: torchvision
+    model_name: resnet50
+    pretrained: true
+  head:
+    type: linear
+    drop_rate: 0.0
+
