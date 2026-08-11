@@ -99,6 +99,40 @@ def _plus_minus_one_accuracy(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return float((np.abs(y_true - y_pred) <= 1).mean())
 
 
+def _macro_f1(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Compute unweighted class-wise F1 without an sklearn dependency."""
+    if y_true.size == 0 or y_pred.size == 0:
+        return 0.0
+    num_classes = int(max(y_true.max(), y_pred.max())) + 1
+    values = []
+    for class_index in range(num_classes):
+        true_positive = int(
+            np.sum((y_true == class_index) & (y_pred == class_index))
+        )
+        false_positive = int(
+            np.sum((y_true != class_index) & (y_pred == class_index))
+        )
+        false_negative = int(
+            np.sum((y_true == class_index) & (y_pred != class_index))
+        )
+        precision = (
+            true_positive / (true_positive + false_positive)
+            if true_positive + false_positive
+            else 0.0
+        )
+        recall = (
+            true_positive / (true_positive + false_negative)
+            if true_positive + false_negative
+            else 0.0
+        )
+        values.append(
+            2.0 * precision * recall / (precision + recall)
+            if precision + recall
+            else 0.0
+        )
+    return float(np.mean(values)) if values else 0.0
+
+
 class Evaluator:
     """
     独立的模型评估器
@@ -605,6 +639,7 @@ class Evaluator:
                 'total': total_samples,
                 'mae': _mean_absolute_error(labels_array, predictions_array),
                 'qwk': _quadratic_weighted_kappa(labels_array, predictions_array),
+                'macro_f1': _macro_f1(labels_array, predictions_array),
                 # 对有序分类补充一个更宽松的正确率指标。
                 'plus_minus_one_accuracy': _plus_minus_one_accuracy(labels_array, predictions_array),
             }

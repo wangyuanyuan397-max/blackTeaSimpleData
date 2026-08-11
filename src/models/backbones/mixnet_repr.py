@@ -34,6 +34,15 @@ class MixNetRePrConfig:
     cycles: int = 3
     per_layer_max_ratio: float = 0.4
     reinit_scale: float = 0.1
+    rerank_each_cycle: bool = True
+    global_ranking: bool = True
+    reset_bn: bool = True
+    reset_optimizer_state: bool = True
+    save_global_best: bool = True
+    save_post_repr_best: bool = True
+    post_repr_min_full_epochs: int = 1
+    allow_sparse_checkpoint: bool = False
+    continue_normal_training: bool = True
 
     @classmethod
     def from_mapping(cls, config: Mapping[str, Any] | None) -> "MixNetRePrConfig":
@@ -65,6 +74,25 @@ class MixNetRePrConfig:
             )
         if not 0.0 < float(self.reinit_scale) <= 1.0:
             raise ValueError("reinit_scale must be in (0, 1].")
+        required_true = {
+            "rerank_each_cycle": self.rerank_each_cycle,
+            "global_ranking": self.global_ranking,
+            "reset_bn": self.reset_bn,
+            "reset_optimizer_state": self.reset_optimizer_state,
+            "save_global_best": self.save_global_best,
+            "save_post_repr_best": self.save_post_repr_best,
+            "continue_normal_training": self.continue_normal_training,
+        }
+        disabled = [name for name, value in required_true.items() if not bool(value)]
+        if disabled:
+            raise ValueError(
+                "The diagnostic RePr protocol requires these options=true: "
+                f"{disabled}"
+            )
+        if bool(self.allow_sparse_checkpoint):
+            raise ValueError("allow_sparse_checkpoint must remain false.")
+        if int(self.post_repr_min_full_epochs) < 1:
+            raise ValueError("post_repr_min_full_epochs must be at least 1.")
 
     @property
     def final_restore_epoch(self) -> int:
@@ -73,19 +101,36 @@ class MixNetRePrConfig:
         return int(self.cycles) * (int(self.full_epochs) + int(self.sparse_epochs)) - 1
 
     @property
-    def prune_epochs(self) -> tuple[int, ...]:
+    def prune_transition_epochs(self) -> tuple[int, ...]:
+        """Zero-based full epochs after whose validation pruning is applied."""
+
         cycle_length = int(self.full_epochs) + int(self.sparse_epochs)
         return tuple(
-            int(self.full_epochs) + cycle * cycle_length
+            int(self.full_epochs) - 1 + cycle * cycle_length
             for cycle in range(int(self.cycles))
         )
 
     @property
-    def restore_epochs(self) -> tuple[int, ...]:
+    def sparse_start_epochs(self) -> tuple[int, ...]:
         return tuple(
-            prune_epoch + int(self.sparse_epochs) - 1
-            for prune_epoch in self.prune_epochs
+            epoch + 1 for epoch in self.prune_transition_epochs
         )
+
+    @property
+    def restore_transition_epochs(self) -> tuple[int, ...]:
+        """Zero-based sparse epochs after whose validation restore occurs."""
+
+        return tuple(
+            prune_epoch + int(self.sparse_epochs)
+            for prune_epoch in self.prune_transition_epochs
+        )
+
+    @property
+    def post_repr_eligible_epoch(self) -> int:
+        """One-based first full epoch eligible for post-RePr selection."""
+
+        first_restore = self.restore_transition_epochs[0]
+        return first_restore + 2
 
 
 @dataclass
@@ -124,6 +169,18 @@ def _filter_redundancy_scores(conv: nn.Conv2d) -> torch.Tensor:
     gram = torch.abs(normalized @ normalized.t())
     gram.fill_diagonal_(0.0)
     return gram.mean(dim=1)
+
+
+def _redundancy_statistics(scores: torch.Tensor) -> dict[str, float]:
+    values = scores.detach().float().flatten()
+    if values.numel() == 0:
+        return {"mean": 0.0, "median": 0.0, "p90": 0.0, "max": 0.0}
+    return {
+        "mean": float(values.mean().item()),
+        "median": float(values.median().item()),
+        "p90": float(torch.quantile(values, 0.90).item()),
+        "max": float(values.max().item()),
+    }
 
 
 @torch.no_grad()
@@ -224,9 +281,14 @@ class MixNetSRePrBackbone(nn.Module):
         self._selected_bn_by_block: dict[str, list[int]] = {}
         self._sparse_active = False
         self._active_cycle = 0
-        self._latest_metrics: dict[str, float | int | bool] = {}
+        self._repr_completed = 0
+        self._full_epochs_after_restore = 0
+        self._latest_metrics: dict[str, Any] = {}
         self._cycle_history: list[dict[str, Any]] = []
         self._current_cycle_record: dict[str, Any] | None = None
+        self._last_restored_cycle_record: dict[str, Any] | None = None
+        self._last_epoch_metrics: dict[str, Any] = {}
+        self._previous_selected_filter_ids: set[str] | None = None
         self._discover_projection_targets()
 
     def _scope_matches(self, stage_index: int) -> bool:
@@ -320,10 +382,24 @@ class MixNetSRePrBackbone(nn.Module):
 
     @torch.no_grad()
     def mean_filter_redundancy(self) -> float:
+        return self.filter_redundancy_statistics()["mean"]
+
+    @torch.no_grad()
+    def filter_redundancy_statistics(self) -> dict[str, float]:
         scores = [self._branch_scores(branch.conv) for branch in self.projection_branches]
         if not scores:
-            return 0.0
-        return float(torch.cat(scores).mean().item())
+            return _redundancy_statistics(torch.empty(0))
+        return _redundancy_statistics(torch.cat(scores))
+
+    @staticmethod
+    def _selected_filter_ids(
+        selected_by_branch: Mapping[str, Sequence[int]],
+    ) -> set[str]:
+        return {
+            f"{branch_name}:{int(local_index)}"
+            for branch_name, indices in selected_by_branch.items()
+            for local_index in indices
+        }
 
     @torch.no_grad()
     def _select_redundant_filters(self) -> tuple[dict[str, list[int]], dict[str, list[int]]]:
@@ -346,7 +422,7 @@ class MixNetSRePrBackbone(nn.Module):
         candidates.sort(key=lambda item: item[0], reverse=True)
         target_count = max(
             1,
-            int(len(candidates) * float(self.repr_config.prune_ratio)),
+            int(round(len(candidates) * float(self.repr_config.prune_ratio))),
         )
         block_caps = {
             block_name: max(
@@ -497,12 +573,25 @@ class MixNetSRePrBackbone(nn.Module):
         logger: Any = None,
     ) -> None:
         del optimizer
-        required_epochs = int(self.repr_config.final_restore_epoch) + 1
+        # One ordinary full-network epoch must follow the final restore.
+        required_epochs = int(self.repr_config.final_restore_epoch) + 2
         if int(total_epochs) < required_epochs:
             raise ValueError(
                 f"RePr schedule needs at least {required_epochs} epochs, got {total_epochs}."
             )
         self._restore_all_masks()
+        self._sparse_active = False
+        self._active_cycle = 0
+        self._repr_completed = 0
+        self._full_epochs_after_restore = 0
+        self._selected_by_branch = {}
+        self._selected_bn_by_block = {}
+        self._latest_metrics = {}
+        self._cycle_history = []
+        self._current_cycle_record = None
+        self._last_restored_cycle_record = None
+        self._last_epoch_metrics = {}
+        self._previous_selected_filter_ids = None
         if logger:
             logger.info(
                 "repr_controller_initialized",
@@ -511,6 +600,9 @@ class MixNetSRePrBackbone(nn.Module):
                 full_epochs=int(self.repr_config.full_epochs),
                 sparse_epochs=int(self.repr_config.sparse_epochs),
                 cycles=int(self.repr_config.cycles),
+                post_repr_eligible_epoch=int(
+                    self.repr_config.post_repr_eligible_epoch
+                ),
                 target_blocks=len(self.applied_blocks),
                 target_filters=sum(int(v["channels"]) for v in self.applied_blocks.values()),
             )
@@ -523,24 +615,93 @@ class MixNetSRePrBackbone(nn.Module):
         logger: Any = None,
     ) -> None:
         del optimizer
-        if int(epoch) not in self.repr_config.prune_epochs:
+        del logger
+        if not self._sparse_active and self._repr_completed >= 1:
+            self._full_epochs_after_restore += 1
+
+    @staticmethod
+    def _metric_snapshot(epoch: int, metrics: Mapping[str, Any]) -> dict[str, Any]:
+        keys = (
+            "train_loss",
+            "train_acc",
+            "val_loss",
+            "val_acc",
+            "val_f1",
+            "val_mae",
+            "val_qwk",
+            "train_val_gap",
+        )
+        return {
+            "epoch": int(epoch) + 1,
+            **{key: metrics.get(key) for key in keys},
+        }
+
+    def _phase_name(self) -> str:
+        if self._sparse_active:
+            return "sparse_repr"
+        if self._repr_completed <= 0:
+            return "pre_repr"
+        return "post_repr_full"
+
+    def _post_repr_checkpoint_eligible(self) -> bool:
+        return bool(
+            self._repr_completed >= 1
+            and not self._sparse_active
+            and self._full_epochs_after_restore
+            >= int(self.repr_config.post_repr_min_full_epochs)
+        )
+
+    def _update_post_restore_curve(
+        self,
+        snapshot: Mapping[str, Any],
+    ) -> None:
+        record = self._last_restored_cycle_record
+        if record is None:
             return
+        if "post_restore_first_full" not in record:
+            record["post_restore_first_full"] = dict(snapshot)
+        current_val = snapshot.get("val_acc")
+        best = record.get("post_restore_best")
+        if current_val is not None and (
+            best is None
+            or best.get("val_acc") is None
+            or float(current_val) > float(best["val_acc"])
+        ):
+            record["post_restore_best"] = dict(snapshot)
+
+    def _start_sparse_cycle(
+        self,
+        epoch: int,
+        snapshot: Mapping[str, Any],
+        logger: Any = None,
+    ) -> None:
         if self._sparse_active:
             raise RuntimeError("RePr attempted to start a sparse phase while one is active.")
-        cycle_index = self.repr_config.prune_epochs.index(int(epoch)) + 1
-        pre_redundancy = self.mean_filter_redundancy()
+        cycle_index = self.repr_config.prune_transition_epochs.index(int(epoch)) + 1
+        pre_stats = self.filter_redundancy_statistics()
         selected_by_branch, selected_bn_by_block = self._select_redundant_filters()
+        selected_ids = self._selected_filter_ids(selected_by_branch)
+        previous_ids = self._previous_selected_filter_ids
+        overlap_ids = selected_ids & previous_ids if previous_ids is not None else set()
+        union_ids = selected_ids | previous_ids if previous_ids is not None else set()
+        selected_count = len(selected_ids)
+
         self._selected_by_branch = selected_by_branch
         self._selected_bn_by_block = selected_bn_by_block
         self._apply_masks(selected_bn_by_block)
         self._sparse_active = True
         self._active_cycle = cycle_index
-        selected_count = sum(len(v) for v in selected_by_branch.values())
         self._current_cycle_record = {
             "cycle": cycle_index,
-            "prune_epoch": int(epoch) + 1,
-            "restore_epoch": int(self.repr_config.restore_epochs[cycle_index - 1]) + 1,
-            "pre_prune_redundancy": pre_redundancy,
+            "prune_after_epoch": int(epoch) + 1,
+            "sparse_start_epoch": int(epoch) + 2,
+            "restore_after_epoch": int(
+                self.repr_config.restore_transition_epochs[cycle_index - 1]
+            )
+            + 1,
+            "before_prune": dict(snapshot),
+            "pre_prune_redundancy": pre_stats["mean"],
+            "pre_prune_redundancy_stats": pre_stats,
             "selected_filter_count": selected_count,
             "selected_ratio": selected_count
             / float(sum(int(v["channels"]) for v in self.applied_blocks.values())),
@@ -550,66 +711,128 @@ class MixNetSRePrBackbone(nn.Module):
             "selected_bn_by_block": {
                 name: list(indices) for name, indices in selected_bn_by_block.items()
             },
+            "selection_overlap_with_previous_count": len(overlap_ids),
+            "selection_overlap_with_previous_ratio": (
+                len(overlap_ids) / float(selected_count)
+                if previous_ids is not None and selected_count
+                else None
+            ),
+            "selection_jaccard_with_previous": (
+                len(overlap_ids) / float(len(union_ids))
+                if previous_ids is not None and union_ids
+                else None
+            ),
         }
+        self._previous_selected_filter_ids = selected_ids
         if logger:
             logger.info(
                 "repr_sparse_phase_started",
                 cycle=cycle_index,
-                epoch=int(epoch) + 1,
+                after_epoch=int(epoch) + 1,
+                sparse_start_epoch=int(epoch) + 2,
                 selected_filters=selected_count,
-                pre_prune_redundancy=pre_redundancy,
+                pre_prune_redundancy=pre_stats["mean"],
+                overlap_with_previous=len(overlap_ids),
             )
+
+    def _restore_sparse_cycle(
+        self,
+        epoch: int,
+        optimizer: torch.optim.Optimizer,
+        snapshot: Mapping[str, Any],
+        logger: Any = None,
+    ) -> None:
+        if not self._sparse_active or self._current_cycle_record is None:
+            raise RuntimeError("RePr restore epoch reached without an active sparse phase.")
+        self._current_cycle_record["sparse_end"] = dict(snapshot)
+        self._reinitialize_selected(optimizer)
+        self._restore_all_masks()
+        self._sparse_active = False
+        self._repr_completed += 1
+        self._full_epochs_after_restore = 0
+        post_stats = self.filter_redundancy_statistics()
+        self._current_cycle_record["post_reinit_redundancy"] = post_stats["mean"]
+        self._current_cycle_record["post_reinit_redundancy_stats"] = post_stats
+        self._cycle_history.append(self._current_cycle_record)
+        self._last_restored_cycle_record = self._current_cycle_record
+        if logger:
+            logger.info(
+                "repr_sparse_phase_restored",
+                cycle=self._active_cycle,
+                after_epoch=int(epoch) + 1,
+                completed_cycles=self._repr_completed,
+                post_reinit_redundancy=post_stats["mean"],
+            )
+        self._current_cycle_record = None
 
     def training_controller_epoch_end(
         self,
         *,
         epoch: int,
         optimizer: torch.optim.Optimizer,
+        metrics: Mapping[str, Any] | None = None,
         logger: Any = None,
     ) -> None:
-        if int(epoch) in self.repr_config.restore_epochs:
-            if not self._sparse_active or self._current_cycle_record is None:
-                raise RuntimeError("RePr restore epoch reached without an active sparse phase.")
-            self._reinitialize_selected(optimizer)
-            self._restore_all_masks()
-            self._sparse_active = False
-            post_reinit_redundancy = self.mean_filter_redundancy()
-            self._current_cycle_record["post_reinit_redundancy"] = post_reinit_redundancy
-            self._cycle_history.append(self._current_cycle_record)
-            if logger:
-                logger.info(
-                    "repr_sparse_phase_restored",
-                    cycle=self._active_cycle,
-                    epoch=int(epoch) + 1,
-                    post_reinit_redundancy=post_reinit_redundancy,
-                )
-            self._current_cycle_record = None
+        snapshot = self._metric_snapshot(int(epoch), dict(metrics or {}))
+        if self._post_repr_checkpoint_eligible():
+            self._update_post_restore_curve(snapshot)
 
-        current_redundancy = self.mean_filter_redundancy()
+        # Transitions deliberately happen after validation and checkpoint hooks.
+        if int(epoch) in self.repr_config.restore_transition_epochs:
+            self._restore_sparse_cycle(epoch, optimizer, snapshot, logger=logger)
+        elif int(epoch) in self.repr_config.prune_transition_epochs:
+            self._start_sparse_cycle(epoch, snapshot, logger=logger)
+        self._last_epoch_metrics = snapshot
+
+    def training_controller_metrics(self) -> dict[str, Any]:
+        stats = self.filter_redundancy_statistics()
         selected_count = sum(len(v) for v in self._selected_by_branch.values())
-        checkpoint_eligible = not self._sparse_active
-        early_stopping_eligible = (
-            checkpoint_eligible and int(epoch) >= int(self.repr_config.final_restore_epoch)
+        early_stopping_eligible = bool(
+            self._repr_completed >= int(self.repr_config.cycles)
+            and not self._sparse_active
+            and self._full_epochs_after_restore >= 1
         )
-        self._latest_metrics = {
+        metrics: dict[str, Any] = {
+            "repr_checkpoint_mode": "dual",
+            "repr_phase": self._phase_name(),
+            "phase": "sparse" if self._sparse_active else "full",
             "repr_sparse_active": bool(self._sparse_active),
+            "is_full_network": not self._sparse_active,
             "repr_cycle": int(self._active_cycle),
+            "cycle": int(self._active_cycle),
+            "repr_completed": int(self._repr_completed),
+            "repr_full_epochs_after_restore": int(self._full_epochs_after_restore),
             "repr_pruned_filters": int(selected_count if self._sparse_active else 0),
-            "repr_mean_filter_redundancy": float(current_redundancy),
-            "checkpoint_eligible": bool(checkpoint_eligible),
-            "early_stopping_eligible": bool(early_stopping_eligible),
+            "num_pruned": int(selected_count if self._sparse_active else 0),
+            "repr_mean_filter_redundancy": stats["mean"],
+            "repr_median_filter_redundancy": stats["median"],
+            "repr_p90_filter_redundancy": stats["p90"],
+            "repr_max_filter_redundancy": stats["max"],
+            "mean_redundancy": stats["mean"],
+            "median_redundancy": stats["median"],
+            "p90_redundancy": stats["p90"],
+            "max_redundancy": stats["max"],
+            "checkpoint_eligible": True,
+            "post_repr_checkpoint_eligible": self._post_repr_checkpoint_eligible(),
+            "early_stopping_eligible": early_stopping_eligible,
         }
         if self._cycle_history:
             latest_cycle = self._cycle_history[-1]
-            self._latest_metrics["repr_last_pre_prune_redundancy"] = float(
+            metrics["repr_last_pre_prune_redundancy"] = float(
                 latest_cycle["pre_prune_redundancy"]
             )
-            self._latest_metrics["repr_last_post_reinit_redundancy"] = float(
+            metrics["repr_last_post_reinit_redundancy"] = float(
                 latest_cycle["post_reinit_redundancy"]
             )
+        self._latest_metrics = dict(metrics)
+        return metrics
 
-    def training_controller_metrics(self) -> dict[str, float | int | bool]:
-        return dict(self._latest_metrics)
+    def prepare_checkpoint_evaluation(self, metrics: Mapping[str, Any]) -> None:
+        """Restore the runtime mask phase saved with a checkpoint."""
+
+        self._sparse_active = bool(metrics.get("repr_sparse_active", False))
+        if not self._sparse_active:
+            self._restore_all_masks()
 
     def training_controller_on_train_end(self) -> None:
         self._restore_all_masks()
@@ -617,6 +840,7 @@ class MixNetSRePrBackbone(nn.Module):
 
     def repr_summary(self) -> dict[str, Any]:
         redundancy_by_scope = summarize_mixnet_projection_redundancy(self)
+        final_stats = self.filter_redundancy_statistics()
         return {
             "model_name": self.model_name,
             "scope": str(self.repr_config.scope).lower(),
@@ -626,17 +850,31 @@ class MixNetSRePrBackbone(nn.Module):
             "cycles": int(self.repr_config.cycles),
             "per_layer_max_ratio": float(self.repr_config.per_layer_max_ratio),
             "reinit_scale": float(self.repr_config.reinit_scale),
+            "post_repr_min_full_epochs": int(
+                self.repr_config.post_repr_min_full_epochs
+            ),
             "target_block_count": len(self.applied_blocks),
             "target_branch_count": len(self.projection_branches),
             "target_filter_count": sum(
                 int(values["channels"]) for values in self.applied_blocks.values()
             ),
             "applied_blocks": self.applied_blocks,
-            "prune_epochs": [epoch + 1 for epoch in self.repr_config.prune_epochs],
-            "restore_epochs": [epoch + 1 for epoch in self.repr_config.restore_epochs],
+            "prune_after_epochs": [
+                epoch + 1 for epoch in self.repr_config.prune_transition_epochs
+            ],
+            "sparse_start_epochs": [
+                epoch + 1 for epoch in self.repr_config.sparse_start_epochs
+            ],
+            "restore_after_epochs": [
+                epoch + 1 for epoch in self.repr_config.restore_transition_epochs
+            ],
+            "post_repr_eligible_epoch": int(
+                self.repr_config.post_repr_eligible_epoch
+            ),
             "completed_cycles": len(self._cycle_history),
             "cycle_history": list(self._cycle_history),
-            "current_mean_filter_redundancy": self.mean_filter_redundancy(),
+            "current_mean_filter_redundancy": final_stats["mean"],
+            "current_redundancy_stats": final_stats,
             "redundancy_by_scope": redundancy_by_scope,
         }
 

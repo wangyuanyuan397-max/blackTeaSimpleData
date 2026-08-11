@@ -10,3 +10,5 @@ model:
     pretrained: true
     input_size: 408
   head: {type: linear, drop_rate: 0.0}
+train:
+  keep_pth_files: true

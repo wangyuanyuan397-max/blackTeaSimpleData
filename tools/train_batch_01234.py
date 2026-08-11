@@ -1,7 +1,8 @@
 """Batch runner for the 01234 five-class experiments.
 
 This wrapper reuses tools/train_batch.py while pinning the 01234 BaSiC grid30
-408 common config and the first, isolated MixNet-S Ortho-Shot/DBT queue.
+408 common config. Ortho-Shot remains the default; --repr-diagnostic selects
+the isolated six-run final RePr diagnostic queue.
 """
 
 import importlib.util
@@ -60,12 +61,23 @@ def _consume_orthoshot_phase(argv: list[str]) -> str:
     return phase
 
 
-ORTHOSHOT_PHASE = _consume_orthoshot_phase(sys.argv)
-CONFIG_DIR = Path(
-    f"configs/fixed_split_01234_models/mixnet_orthoshot/{ORTHOSHOT_PHASE}"
-)
+REPR_DIAGNOSTIC = "--repr-diagnostic" in sys.argv
+if REPR_DIAGNOSTIC:
+    sys.argv.remove("--repr-diagnostic")
+    if any(argument.startswith("--orthoshot-phase") for argument in sys.argv):
+        raise SystemExit(
+            "--repr-diagnostic and --orthoshot-phase cannot be used together."
+        )
+    ORTHOSHOT_PHASE = None
+    CONFIG_DIR = Path("configs/fixed_split_01234_models/mixnet_repr")
+    EXPECTED_CONFIG_COUNT = 6
+else:
+    ORTHOSHOT_PHASE = _consume_orthoshot_phase(sys.argv)
+    CONFIG_DIR = Path(
+        f"configs/fixed_split_01234_models/mixnet_orthoshot/{ORTHOSHOT_PHASE}"
+    )
+    EXPECTED_CONFIG_COUNT = ORTHOSHOT_PHASE_COUNTS[ORTHOSHOT_PHASE]
 CONFIG_NAMES_FILE = CONFIG_DIR / "CONFIG_NAMES.txt"
-EXPECTED_CONFIG_COUNT = ORTHOSHOT_PHASE_COUNTS[ORTHOSHOT_PHASE]
 
 
 def _load_config_names(path: Path) -> tuple[str, ...]:
@@ -94,7 +106,8 @@ train_batch_base.PYCHARM_KEEP_PTH_FILES = False
 def main() -> None:
     if any(arg in {"--keep-pth", "--keep-pth-files"} for arg in sys.argv[1:]):
         raise SystemExit(
-            "This 01234 batch discards .pth files; please do not pass --keep-pth."
+            "Checkpoint retention is controlled by each 01234 YAML; do not pass "
+            "--keep-pth to the wrapper."
         )
     train_batch_base.main()
 

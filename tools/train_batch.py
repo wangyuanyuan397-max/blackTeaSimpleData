@@ -1005,7 +1005,7 @@ def save_test_prediction_csv(trainer: Trainer) -> Dict[str, Any]:
     }
 
 
-def evaluate_best_checkpoint(
+def _evaluate_single_best_checkpoint(
     trainer: Trainer,
     training_time_seconds: float,
 ) -> Dict[str, Any]:
@@ -1122,6 +1122,143 @@ def evaluate_best_checkpoint(
     return result
 
 
+def _evaluate_repr_checkpoint(
+    trainer: Trainer,
+    checkpoint_path: Path,
+    checkpoint_label: str,
+) -> Dict[str, Any]:
+    """Evaluate one RePr checkpoint in the exact runtime phase it saved."""
+    if not checkpoint_path.is_file():
+        raise FileNotFoundError(f"Missing RePr checkpoint: {checkpoint_path}")
+    checkpoint = load_checkpoint(checkpoint_path, trainer.device)
+    trainer.model.load_state_dict(checkpoint.get("model_state_dict", checkpoint))
+
+    evaluated_model = (
+        trainer.model.module if hasattr(trainer.model, "module") else trainer.model
+    )
+    evaluated_backbone = getattr(evaluated_model, "backbone", None)
+    prepare_evaluation = getattr(
+        evaluated_backbone,
+        "prepare_checkpoint_evaluation",
+        None,
+    )
+    checkpoint_metrics = to_builtin(checkpoint.get("metrics", {}))
+    if callable(prepare_evaluation):
+        prepare_evaluation(checkpoint_metrics)
+    trainer.model.eval()
+
+    test_metrics = trainer.evaluator.evaluate(
+        trainer.test_loader,
+        trainer.loss_fn,
+        desc=f"Testing RePr {checkpoint_label} checkpoint",
+    )
+    class_names = list(trainer.test_loader.dataset.classes)
+    confusion_matrix = trainer.evaluator.compute_confusion_matrix(
+        trainer.test_loader,
+        num_classes=len(class_names),
+    )
+    per_class_accuracy: Dict[str, float] = {}
+    for class_index, class_name in enumerate(class_names):
+        class_total = int(confusion_matrix[class_index, :].sum())
+        class_correct = int(confusion_matrix[class_index, class_index])
+        per_class_accuracy[class_name] = (
+            class_correct / class_total if class_total else 0.0
+        )
+
+    best_train_accuracy = checkpoint_metrics.get("train_acc")
+    best_validation_accuracy = checkpoint_metrics.get("val_acc")
+    train_val_accuracy_gap = None
+    if best_train_accuracy is not None and best_validation_accuracy is not None:
+        train_val_accuracy_gap = float(best_train_accuracy) - float(
+            best_validation_accuracy
+        )
+    result = to_builtin(test_metrics)
+    result.update(
+        {
+            "checkpoint_label": checkpoint_label,
+            "checkpoint_path": str(checkpoint_path),
+            "checkpoint_phase": checkpoint_metrics.get("repr_phase"),
+            "class_names": class_names,
+            "per_class_accuracy": per_class_accuracy,
+            "confusion_matrix": to_builtin(confusion_matrix),
+            "num_samples": int(confusion_matrix.sum()),
+            "best_epoch": int(checkpoint.get("epoch", -1)) + 1,
+            "best_validation_metrics": checkpoint_metrics,
+            "best_train_accuracy": best_train_accuracy,
+            "best_validation_accuracy": best_validation_accuracy,
+            "train_val_accuracy_gap": train_val_accuracy_gap,
+        }
+    )
+    result.update(compute_classification_details(confusion_matrix, class_names))
+    return result
+
+
+def evaluate_best_checkpoint(
+    trainer: Trainer,
+    training_time_seconds: float,
+) -> Dict[str, Any]:
+    """Evaluate ordinary best or both global/post-RePr diagnostic checkpoints."""
+    global_path = trainer.output_dir / "best_global.pth"
+    post_path = trainer.output_dir / "best_post_repr.pth"
+    if not global_path.exists() and not post_path.exists():
+        return _evaluate_single_best_checkpoint(trainer, training_time_seconds)
+    if not global_path.is_file() or not post_path.is_file():
+        raise FileNotFoundError(
+            "Diagnostic RePr training must produce both best_global.pth and "
+            f"best_post_repr.pth; found global={global_path.exists()}, "
+            f"post={post_path.exists()}."
+        )
+
+    global_result = _evaluate_repr_checkpoint(trainer, global_path, "global")
+    # Evaluate post-RePr second so all exported predictions and complexity
+    # artifacts correspond to the checkpoint used as the primary result.
+    post_result = _evaluate_repr_checkpoint(trainer, post_path, "post_repr")
+    result = dict(post_result)
+    result.update(
+        {
+            "repr_global_checkpoint": global_result,
+            "repr_post_checkpoint": post_result,
+            "global_best_epoch": global_result.get("best_epoch"),
+            "global_best_phase": global_result.get("checkpoint_phase"),
+            "global_best_validation_accuracy": global_result.get(
+                "best_validation_accuracy"
+            ),
+            "global_test_accuracy": global_result.get("accuracy"),
+            "global_test_macro_f1": global_result.get("macro_f1"),
+            "global_test_mae": global_result.get("mae"),
+            "global_test_qwk": global_result.get("qwk"),
+            "post_repr_best_epoch": post_result.get("best_epoch"),
+            "post_repr_best_validation_accuracy": post_result.get(
+                "best_validation_accuracy"
+            ),
+            "post_repr_test_accuracy": post_result.get("accuracy"),
+            "post_repr_test_macro_f1": post_result.get("macro_f1"),
+            "post_repr_test_mae": post_result.get("mae"),
+            "post_repr_test_qwk": post_result.get("qwk"),
+        }
+    )
+
+    evaluated_model = (
+        trainer.model.module if hasattr(trainer.model, "module") else trainer.model
+    )
+    evaluated_backbone = getattr(evaluated_model, "backbone", None)
+    repr_summary = getattr(evaluated_backbone, "repr_summary", None)
+    if callable(repr_summary):
+        result["mixnet_repr"] = to_builtin(repr_summary())
+    result["training_time_seconds"] = training_time_seconds
+    image_size = int(getattr(trainer.config.data, "image_size", 224) or 224)
+    result.update(
+        profile_model_complexity(trainer.model, trainer.device, image_size=image_size)
+    )
+    result.update(
+        measure_inference_time(trainer.model, trainer.test_loader, trainer.device)
+    )
+    result.update(save_test_prediction_csv(trainer))
+    result.update(save_probabilistic_prediction_csv(trainer))
+    result.update(save_ordinal_representation_artifacts(trainer))
+    return result
+
+
 def save_json(path: Path, data: Any) -> None:
     """使用 UTF-8 和便于阅读的缩进保存 JSON。"""
     with path.open("w", encoding="utf-8") as file:
@@ -1151,6 +1288,27 @@ def save_confusion_matrix_csvs(
             writer.writerow(['true/pred', *class_names])
             for class_name, row in zip(class_names, matrix):
                 writer.writerow([class_name, *row])
+
+    for checkpoint_prefix, checkpoint_key in (
+        ("global", "repr_global_checkpoint"),
+        ("post_repr", "repr_post_checkpoint"),
+    ):
+        checkpoint_metrics = metrics.get(checkpoint_key) or {}
+        checkpoint_classes = list(checkpoint_metrics.get("class_names") or [])
+        for metric_key, filename in matrix_specs:
+            matrix = checkpoint_metrics.get(metric_key) or []
+            if not checkpoint_classes or not matrix:
+                continue
+            checkpoint_filename = f"{checkpoint_prefix}_{filename}"
+            with (run_directory / checkpoint_filename).open(
+                "w",
+                encoding="utf-8-sig",
+                newline="",
+            ) as file:
+                writer = csv.writer(file)
+                writer.writerow(["true/pred", *checkpoint_classes])
+                for class_name, row in zip(checkpoint_classes, matrix):
+                    writer.writerow([class_name, *row])
 
 
 def _result_to_csv_row(
@@ -1314,10 +1472,22 @@ def _mixnet_repr_config_columns(result: Dict[str, Any]) -> Dict[str, Any]:
     backbone = ((model_config.get('model') or {}).get('backbone') or {})
     repr_config = backbone.get('repr') or {}
     repr_summary = (result.get('metrics') or {}).get('mixnet_repr') or {}
+    metrics = result.get('metrics') or {}
     history = repr_summary.get('cycle_history') or []
     last_cycle = history[-1] if history else {}
     redundancy_by_scope = repr_summary.get('redundancy_by_scope') or {}
+    current_redundancy = repr_summary.get('current_redundancy_stats') or {}
     is_repr = backbone.get('type') == 'mixnet_s_repr'
+    global_checkpoint = metrics.get('repr_global_checkpoint') or (
+        metrics if not is_repr else {}
+    )
+    post_checkpoint = metrics.get('repr_post_checkpoint') or {}
+    overlap_counts = [
+        cycle.get('selection_overlap_with_previous_count')
+        for cycle in history
+        if cycle.get('selection_overlap_with_previous_count') is not None
+    ]
+    post_cycle_bests = [cycle.get('post_restore_best') for cycle in history]
     return {
         'random_seed': model_config.get('random_seed'),
         'repr_variant': model_config.get('repr_variant'),
@@ -1337,9 +1507,34 @@ def _mixnet_repr_config_columns(result: Dict[str, Any]) -> Dict[str, Any]:
         'repr_target_branch_count': repr_summary.get('target_branch_count'),
         'repr_target_filter_count': repr_summary.get('target_filter_count'),
         'repr_completed_cycles': repr_summary.get('completed_cycles'),
+        'repr_post_eligible_epoch': repr_summary.get('post_repr_eligible_epoch'),
+        'repr_global_best_epoch': global_checkpoint.get('best_epoch'),
+        'repr_global_best_phase': (
+            global_checkpoint.get('checkpoint_phase')
+            if is_repr
+            else 'baseline'
+        ),
+        'repr_global_val_accuracy': global_checkpoint.get(
+            'best_validation_accuracy'
+        ),
+        'repr_global_test_accuracy': global_checkpoint.get('accuracy'),
+        'repr_global_test_macro_f1': global_checkpoint.get('macro_f1'),
+        'repr_global_test_mae': global_checkpoint.get('mae'),
+        'repr_global_test_qwk': global_checkpoint.get('qwk'),
+        'repr_post_best_epoch': post_checkpoint.get('best_epoch'),
+        'repr_post_val_accuracy': post_checkpoint.get(
+            'best_validation_accuracy'
+        ),
+        'repr_post_test_accuracy': post_checkpoint.get('accuracy'),
+        'repr_post_test_macro_f1': post_checkpoint.get('macro_f1'),
+        'repr_post_test_mae': post_checkpoint.get('mae'),
+        'repr_post_test_qwk': post_checkpoint.get('qwk'),
         'repr_mean_filter_redundancy': repr_summary.get(
             'current_mean_filter_redundancy'
         ),
+        'repr_median_filter_redundancy': current_redundancy.get('median'),
+        'repr_p90_filter_redundancy': current_redundancy.get('p90'),
+        'repr_max_filter_redundancy': current_redundancy.get('max'),
         'repr_last_pre_prune_redundancy': last_cycle.get(
             'pre_prune_redundancy'
         ),
@@ -1365,6 +1560,15 @@ def _mixnet_repr_config_columns(result: Dict[str, Any]) -> Dict[str, Any]:
             list((repr_summary.get('applied_blocks') or {}).keys()),
             ensure_ascii=False,
         ),
+        'repr_selection_overlap_counts': json.dumps(
+            overlap_counts,
+            ensure_ascii=False,
+        ),
+        'repr_post_cycle_bests': json.dumps(
+            post_cycle_bests,
+            ensure_ascii=False,
+        ),
+        'repr_cycle_history': json.dumps(history, ensure_ascii=False),
     }
 
 
@@ -1903,7 +2107,29 @@ def render_history_table(history: Dict[str, List[Any]]) -> str:
     epochs = max((len(values) for values in history.values()), default=0)
     if epochs == 0:
         return '<p class="muted">没有训练历史。</p>'
-    keys = ["train_loss", "train_acc", "val_loss", "val_acc", "val_mae", "val_qwk"]
+    base_keys = [
+        "train_loss",
+        "train_acc",
+        "val_loss",
+        "val_acc",
+        "val_f1",
+        "val_mae",
+        "val_qwk",
+        "train_val_gap",
+    ]
+    repr_keys = [
+        "phase",
+        "cycle",
+        "repr_completed",
+        "num_pruned",
+        "mean_redundancy",
+        "median_redundancy",
+        "p90_redundancy",
+        "max_redundancy",
+        "global_best",
+        "post_repr_best",
+    ]
+    keys = base_keys + [key for key in repr_keys if key in history]
     header = "".join(f"<th>{html.escape(key)}</th>" for key in keys)
     rows = []
     for epoch_index in range(epochs):
@@ -1952,9 +2178,19 @@ def write_run_report(
         to_builtin(config.model_dump()), ensure_ascii=False, indent=2
     )
     keep_pth_files = True if config is None else should_keep_pth_files(config)
+    checkpoint_links = []
+    for checkpoint_name, checkpoint_label in (
+        ("best_model.pth", "最佳模型"),
+        ("best_global.pth", "Global 最佳模型"),
+        ("best_post_repr.pth", "Post-RePr 最佳模型"),
+    ):
+        if (run_directory / checkpoint_name).exists():
+            checkpoint_links.append(
+                f'<a href="{checkpoint_name}">{checkpoint_label}</a>'
+            )
     checkpoint_entry = (
-        '<a href="best_model.pth">最佳模型</a>'
-        if keep_pth_files
+        " / ".join(checkpoint_links)
+        if keep_pth_files and checkpoint_links
         else '<span class="muted">最佳模型未保留（keep_pth_files=false）</span>'
     )
     training_curve_path = run_directory / "training_curves.png"
@@ -2038,6 +2274,51 @@ def write_batch_summary(
     results: List[Dict[str, Any]],
 ) -> Path:
     """生成链接到每个模型报告的整批 HTML 总览。"""
+    if any(
+        "mixnet_repr/" in str(result.get("config_path", ""))
+        for result in results
+    ):
+        diagnostic_rows = []
+        for result in results:
+            metrics = result.get("metrics") or {}
+            global_metrics = metrics.get("repr_global_checkpoint") or metrics
+            post_metrics = metrics.get("repr_post_checkpoint") or {}
+            report_path = Path(result["report_path"])
+            relative_report = report_path.relative_to(runs_root).as_posix()
+
+            def display(value: Any, percent: bool = False) -> str:
+                if value is None:
+                    return "-"
+                return f"{float(value):.2%}" if percent else f"{float(value):.4f}"
+
+            primary_metrics = post_metrics or global_metrics
+            diagnostic_rows.append(
+                "<tr>"
+                f"<td>{html.escape(result['model_name'])}</td>"
+                f"<td>{html.escape(result['status'])}</td>"
+                f"<td>{global_metrics.get('best_epoch', '-')}</td>"
+                f"<td>{html.escape(str(global_metrics.get('checkpoint_phase', 'baseline')))}</td>"
+                f"<td>{display(global_metrics.get('best_validation_accuracy'), True)}</td>"
+                f"<td>{display(global_metrics.get('accuracy'), True)}</td>"
+                f"<td>{post_metrics.get('best_epoch', '-')}</td>"
+                f"<td>{display(post_metrics.get('best_validation_accuracy'), True)}</td>"
+                f"<td>{display(post_metrics.get('accuracy'), True)}</td>"
+                f"<td>{display(primary_metrics.get('macro_f1'))}</td>"
+                f"<td>{display(primary_metrics.get('mae'))}</td>"
+                f"<td>{display(primary_metrics.get('qwk'))}</td>"
+                f"<td><a href='{html.escape(relative_report)}'>打开报告</a></td>"
+                "</tr>"
+            )
+        document = f"""<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<title>RePr 诊断批量总览 {batch_timestamp}</title>
+<style>body{{max-width:1400px;margin:36px auto;padding:0 18px;font:15px/1.6 system-ui,"Microsoft YaHei",sans-serif;color:#172033}}table{{width:100%;border-collapse:collapse}}th,td{{border:1px solid #dfe5ef;padding:8px;text-align:center}}th{{background:#f0f4fa}}a{{color:#315efb}}</style>
+</head><body><h1>RePr 诊断批量总览</h1><p>批次时间：{html.escape(batch_timestamp)}</p>
+<table><thead><tr><th>Model</th><th>Status</th><th>Global epoch</th><th>Global phase</th><th>Global Val</th><th>Global Test</th><th>Post epoch</th><th>Post Val</th><th>Post Test</th><th>F1</th><th>MAE</th><th>QWK</th><th>Report</th></tr></thead><tbody>{''.join(diagnostic_rows)}</tbody></table>
+</body></html>"""
+        summary_path = runs_root / f"batch_{batch_timestamp}_summary.html"
+        summary_path.write_text(document, encoding="utf-8")
+        return summary_path
+
     rows = []
     for result in results:
         report_path = Path(result["report_path"])
@@ -2494,10 +2775,15 @@ def main() -> None:
         print('本次包含不同训练轮数：')
         for model_name, epochs in epoch_by_model:
             print(f'  - {model_name}: {epochs}')
-    print(
-        '保留 PTH：'
-        + str(bool(common_config['train'].get('keep_pth_files', True)))
-    )
+    retention_by_model = {
+        str(model_config['name']): should_keep_pth_files(preview_config)
+        for (_, model_config), preview_config in zip(model_entries, preview_configs)
+    }
+    retention_values = set(retention_by_model.values())
+    if len(retention_values) == 1:
+        print('保留 PTH：' + str(next(iter(retention_values))))
+    else:
+        print('各模型保留 PTH：' + json.dumps(retention_by_model, ensure_ascii=False))
     print(f'训练设备：{device}')
 
     if args.dry_run:

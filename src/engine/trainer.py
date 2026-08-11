@@ -304,15 +304,6 @@ class Trainer:
                 # 先训练一个 epoch，再在验证集上评估。
                 train_metrics = self._train_epoch(epoch)
 
-                # Restore training-time structural changes before validation
-                # and checkpoint selection when a controller requests it.
-                self._call_training_controller(
-                    "training_controller_epoch_end",
-                    epoch=epoch,
-                    optimizer=self.optimizer,
-                    logger=self.logger,
-                )
-                
                 # 验证
                 val_metrics = self._validate_epoch(epoch)
                 
@@ -322,9 +313,13 @@ class Trainer:
                     "train_acc": train_metrics["accuracy"],
                     "val_loss": val_metrics["loss"],
                     "val_acc": val_metrics["accuracy"],
+                    "val_f1": val_metrics.get("macro_f1", 0.0),
                     "val_mae": val_metrics.get("mae", 0.0),
                     "val_qwk": val_metrics.get("qwk", 0.0),
                 }
+                metrics["train_val_gap"] = (
+                    float(metrics["train_acc"]) - float(metrics["val_acc"])
+                )
                 for metric_name, metric_value in train_metrics.items():
                     if metric_name in {"loss", "accuracy"}:
                         continue
@@ -340,13 +335,23 @@ class Trainer:
                 if isinstance(controller_metrics, dict):
                     metrics.update(controller_metrics)
                 
-                # 记录历史
+                # 触发 epoch_end Hook
+                self.hook_manager.trigger("on_epoch_end", trainer=self, epoch=epoch, metrics=metrics)
+
+                # Checkpoint hooks may annotate global/post-RePr best flags.
                 for key, value in metrics.items():
                     self.history.setdefault(key, [])
                     self.history[key].append(value)
-                
-                # 触发 epoch_end Hook
-                self.hook_manager.trigger("on_epoch_end", trainer=self, epoch=epoch, metrics=metrics)
+
+                # Controller transitions are deliberately last: train ->
+                # validate -> checkpoint -> prune/restore.
+                self._call_training_controller(
+                    "training_controller_epoch_end",
+                    epoch=epoch,
+                    optimizer=self.optimizer,
+                    metrics=metrics,
+                    logger=self.logger,
+                )
                 
                 # 更新最佳准确率
                 if val_metrics["accuracy"] > self.best_val_acc:
@@ -1245,6 +1250,12 @@ class Trainer:
         在训练结束后，加载最佳模型并生成错误分析报告
         """
         best_model_path = self.output_dir / "best_model.pth"
+        if not best_model_path.exists():
+            for diagnostic_name in ("best_post_repr.pth", "best_global.pth"):
+                diagnostic_path = self.output_dir / diagnostic_name
+                if diagnostic_path.exists():
+                    best_model_path = diagnostic_path
+                    break
         
         if not best_model_path.exists():
             self.logger.warning("error_analysis_skipped", reason="best_model_not_found")

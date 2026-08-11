@@ -1,0 +1,32 @@
+name: repr20_mid_p20_s5_3
+repr_variant: R20
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_repr
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    repr:
+      enabled: true
+      scope: mid
+      prune_ratio: 0.20
+      full_epochs: 5
+      sparse_epochs: 3
+      cycles: 3
+      per_layer_max_ratio: 0.40
+      reinit_scale: 0.10
+      rerank_each_cycle: true
+      global_ranking: true
+      reset_bn: true
+      reset_optimizer_state: true
+      save_global_best: true
+      save_post_repr_best: true
+      post_repr_min_full_epochs: 1
+      allow_sparse_checkpoint: false
+      continue_normal_training: true
+  head: {type: linear, drop_rate: 0.0}
+train:
+  keep_pth_files: true

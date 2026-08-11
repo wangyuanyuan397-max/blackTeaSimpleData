@@ -1,20 +1,7 @@
-# MixNet-S RePr-PWProj controlled ablation queue (baseline + 18 variants).
+# Final diagnostic RePr queue (baseline + five early-RePr variants).
 repr00_mixnet_s_baseline
-repr01_mid_p10_s10_5
-repr02_mid_p20_s10_5
-repr03_mid_p30_s10_5
-repr04_mid_p10_s20_10
-repr05_mid_p20_s20_10
-repr06_mid_p30_s20_10
-repr07_late_p10_s10_5
-repr08_late_p20_s10_5
-repr09_late_p30_s10_5
-repr10_late_p10_s20_10
-repr11_late_p20_s20_10
-repr12_late_p30_s20_10
-repr13_all_p10_s10_5
-repr14_all_p20_s10_5
-repr15_all_p30_s10_5
-repr16_all_p10_s20_10
-repr17_all_p20_s20_10
-repr18_all_p30_s20_10
+repr19_mid_p10_s5_3
+repr20_mid_p20_s5_3
+repr21_all_p10_s5_3
+repr22_all_p20_s5_3
+repr23_mid_p20_s7_3

@@ -497,19 +497,91 @@ class CheckpointHook:
         self.best_value = float('-inf') if self.mode == 'max' else float('inf')
         self.best_epoch = 0
         self.has_saved_once = False  # 跟踪是否至少保存过一次
+        self.post_best_value = float('-inf') if self.mode == 'max' else float('inf')
+        self.post_best_epoch = 0
+        self.post_has_saved_once = False
+
+    def _is_improved(self, value: float, best_value: float) -> bool:
+        if self.mode == 'max':
+            return value > best_value + self.min_delta
+        return value < best_value - self.min_delta
+
+    def _save_checkpoint(
+        self,
+        trainer: Any,
+        epoch: int,
+        metrics: Dict[str, Any],
+        filename: str,
+        checkpoint_kind: str,
+    ) -> None:
+        torch.save(
+            {
+                'epoch': epoch,
+                'model_state_dict': trainer.model.state_dict(),
+                'optimizer_state_dict': trainer.optimizer.state_dict(),
+                'metrics': dict(metrics),
+                self.metric: metrics.get(self.metric),
+                'checkpoint_kind': checkpoint_kind,
+                'checkpoint_phase': metrics.get('repr_phase'),
+            },
+            self.output_dir / filename,
+        )
     
-    def on_epoch_end(self, trainer: Any, epoch: int, metrics: Dict[str, float]) -> None:
+    def on_epoch_end(self, trainer: Any, epoch: int, metrics: Dict[str, Any]) -> None:
         """保存检查点"""
+        if metrics.get("repr_checkpoint_mode") == "dual":
+            if self.metric not in metrics:
+                return
+            value = float(metrics[self.metric])
+            global_best = self._is_improved(value, self.best_value) or not self.has_saved_once
+            post_eligible = bool(metrics.get("post_repr_checkpoint_eligible", False))
+            post_best = post_eligible and (
+                self._is_improved(value, self.post_best_value)
+                or not self.post_has_saved_once
+            )
+            metrics["global_best"] = bool(global_best)
+            metrics["post_repr_best"] = bool(post_best)
+
+            if global_best:
+                self.best_value = value
+                self.best_epoch = epoch
+                self.has_saved_once = True
+                self._save_checkpoint(
+                    trainer,
+                    epoch,
+                    metrics,
+                    "best_global.pth",
+                    "global",
+                )
+            if post_best:
+                self.post_best_value = value
+                self.post_best_epoch = epoch
+                self.post_has_saved_once = True
+                self._save_checkpoint(
+                    trainer,
+                    epoch,
+                    metrics,
+                    "best_post_repr.pth",
+                    "post_repr",
+                )
+
+            if self.save_interval and (epoch + 1) % self.save_interval == 0:
+                self._save_checkpoint(
+                    trainer,
+                    epoch,
+                    metrics,
+                    f"checkpoint_epoch_{epoch+1}.pth",
+                    "periodic",
+                )
+            return
+
         if not bool(metrics.get("checkpoint_eligible", True)):
             return
 
         # 保存最佳模型
         if self.metric in metrics:
             value = metrics[self.metric]
-            if self.mode == 'max':
-                is_best = value > self.best_value + self.min_delta
-            else:
-                is_best = value < self.best_value - self.min_delta
+            is_best = self._is_improved(float(value), self.best_value)
             
             # 如果是最佳性能，或者第一次保存，都进行保存
             if is_best or not self.has_saved_once:
