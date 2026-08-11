@@ -13,6 +13,7 @@ import numpy as np
 from tqdm import tqdm
 from .metrics import compute_metrics
 from .visualization import plot_confusion_matrix, plot_training_curves
+from .batch import batch_size_of, move_to_device
 import base64
 import re
 try:
@@ -171,7 +172,7 @@ def analyze_and_save_errors(
             else:
                 raise ValueError(f"Unexpected batch format: got {len(batch_data)} elements")
             
-            inputs, labels = inputs.to(device), labels.to(device)
+            inputs, labels = move_to_device(inputs, device), labels.to(device)
             
             # [Optimization] Mini-batch processing to avoid OOM
             # Error analysis often uses larger batches or multi-crop inputs which can explode memory
@@ -181,7 +182,19 @@ def analyze_and_save_errors(
             
             try:
                 # Check if inputs are 5D (Batch, Crops, C, H, W) or 4D (Batch, C, H, W)
-                if inputs.dim() == 5:
+                if isinstance(inputs, dict):
+                    num_samples = batch_size_of(inputs)
+                    for i in range(0, num_samples, mini_batch_size):
+                        batch_slice = {
+                            key: value[i:i + mini_batch_size]
+                            for key, value in inputs.items()
+                        }
+                        out = model(batch_slice)
+                        if isinstance(out, tuple):
+                            out = out[0]
+                        outputs_list.append(out)
+                    outputs = torch.cat(outputs_list, dim=0)
+                elif inputs.dim() == 5:
                     bsz, ncrops, c, h, w = inputs.shape
                     # Flatten: (Batch * Crops, C, H, W)
                     flat_inputs = inputs.reshape(-1, c, h, w)

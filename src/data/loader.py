@@ -7,6 +7,7 @@ import torch
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 from torchvision import transforms as T
+from torchvision.transforms import functional as TF
 
 from ..utils.registry import DATASETS, TRANSFORMS
 
@@ -58,6 +59,152 @@ def build_patch_eval_transform(image_size: int = 224) -> T.Compose:
             T.ToTensor(),
             T.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
         ]
+    )
+
+
+class GlobalLocalViewTransform:
+    """Build one full-resolution global view and zero or more local crops.
+
+    Training applies the baseline horizontal/vertical flips once to the source
+    image, so every view observes the same geometry. Local crop locations are
+    then sampled independently. Evaluation uses fixed spatial anchors to keep
+    validation, early stopping, and test prediction exports deterministic.
+    """
+
+    def __init__(
+        self,
+        global_size: int = 408,
+        local_size: int = 224,
+        crop_size: int = 288,
+        num_local_views: int = 2,
+        training: bool = True,
+    ) -> None:
+        self.global_size = int(global_size)
+        self.local_size = int(local_size)
+        self.crop_size = int(crop_size)
+        self.num_local_views = int(num_local_views)
+        self.training = bool(training)
+        if min(self.global_size, self.local_size, self.crop_size) <= 0:
+            raise ValueError("global_size, local_size, and crop_size must be positive.")
+        if self.num_local_views < 0:
+            raise ValueError("num_local_views must be non-negative.")
+        self.normalize = T.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)
+
+    def _to_normalized_tensor(self, image: Image.Image, size: int) -> torch.Tensor:
+        resized = TF.resize(image, [size, size], antialias=True)
+        return self.normalize(TF.to_tensor(resized))
+
+    def _prepare_crop_source(self, image: Image.Image) -> Image.Image:
+        width, height = image.size
+        if width >= self.crop_size and height >= self.crop_size:
+            return image
+        return TF.resize(
+            image,
+            [max(height, self.crop_size), max(width, self.crop_size)],
+            antialias=True,
+        )
+
+    @staticmethod
+    def _fixed_positions(height: int, width: int, crop_size: int, count: int):
+        max_top = max(0, height - crop_size)
+        max_left = max(0, width - crop_size)
+        candidates = [
+            (0, 0),
+            (max_top, max_left),
+            (0, max_left),
+            (max_top, 0),
+            (max_top // 2, max_left // 2),
+        ]
+        positions = []
+        for position in candidates:
+            if position not in positions:
+                positions.append(position)
+            if len(positions) == count:
+                return positions
+        # General fallback for searches with K > 5.
+        grid_size = max(2, int(count**0.5) + 1)
+        for row in range(grid_size):
+            top = round(max_top * row / (grid_size - 1))
+            for column in range(grid_size):
+                left = round(max_left * column / (grid_size - 1))
+                if (top, left) not in positions:
+                    positions.append((top, left))
+                if len(positions) == count:
+                    return positions
+        return positions[:count]
+
+    def __call__(self, image: Image.Image) -> dict[str, torch.Tensor]:
+        if self.training:
+            if torch.rand(()) < 0.5:
+                image = TF.hflip(image)
+            if torch.rand(()) < 0.5:
+                image = TF.vflip(image)
+
+        global_view = self._to_normalized_tensor(image, self.global_size)
+        if self.num_local_views == 0:
+            local_views = global_view.new_empty((0, 3, self.local_size, self.local_size))
+            return {"global": global_view, "locals": local_views}
+
+        crop_source = self._prepare_crop_source(image)
+        width, height = crop_source.size
+        if self.training:
+            positions = [
+                T.RandomCrop.get_params(
+                    crop_source,
+                    output_size=(self.crop_size, self.crop_size),
+                )[:2]
+                for _ in range(self.num_local_views)
+            ]
+        else:
+            positions = self._fixed_positions(
+                height,
+                width,
+                self.crop_size,
+                self.num_local_views,
+            )
+
+        local_views = []
+        for top, left in positions:
+            crop = TF.crop(
+                crop_source,
+                int(top),
+                int(left),
+                self.crop_size,
+                self.crop_size,
+            )
+            local_views.append(self._to_normalized_tensor(crop, self.local_size))
+        return {"global": global_view, "locals": torch.stack(local_views, dim=0)}
+
+
+@TRANSFORMS.register("global_local_patch_train")
+def build_global_local_patch_train_transform(
+    global_size: int = 408,
+    local_size: int = 224,
+    crop_size: int = 288,
+    num_local_views: int = 2,
+) -> GlobalLocalViewTransform:
+    return GlobalLocalViewTransform(
+        global_size=global_size,
+        local_size=local_size,
+        crop_size=crop_size,
+        num_local_views=num_local_views,
+        training=True,
+    )
+
+
+@TRANSFORMS.register("global_local_patch_eval")
+def build_global_local_patch_eval_transform(
+    global_size: int = 408,
+    local_size: int = 224,
+    crop_size: int = 288,
+    num_local_views: int = 2,
+) -> GlobalLocalViewTransform:
+    return GlobalLocalViewTransform(
+        global_size=global_size,
+        local_size=local_size,
+        crop_size=crop_size,
+        num_local_views=num_local_views,
+        training=False,
     )
 
 

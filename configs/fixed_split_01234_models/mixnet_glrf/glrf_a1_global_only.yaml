@@ -1,0 +1,39 @@
+name: glrf_a1_global_only
+glrf_variant: A1
+random_seed: 2026
+model:
+  type: glrf_classifier
+  strategy: classification
+  backbone:
+    type: timm
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+  head:
+    type: linear
+    drop_rate: 0.0
+  projection_dim: 128
+  local_fusion: mean
+  global_local_fusion: global_only
+  num_local_views: 0
+  global_image_size: 408
+  local_image_size: 224
+data:
+  train_transform:
+    type: global_local_patch_train
+    global_size: 408
+    local_size: 224
+    crop_size: 288
+    num_local_views: 0
+  eval_transform:
+    type: global_local_patch_eval
+    global_size: 408
+    local_size: 224
+    crop_size: 288
+    num_local_views: 0
+  test_transform:
+    type: global_local_patch_eval
+    global_size: 408
+    local_size: 224
+    crop_size: 288
+    num_local_views: 0

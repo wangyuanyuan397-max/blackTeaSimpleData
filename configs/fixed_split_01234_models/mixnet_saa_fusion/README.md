@@ -20,11 +20,9 @@ SAA branch heads are always inferred from the unmodified MixConv kernel list.
 For timm 1.0.25, official MixNet-S uses two through five heads depending on the
 block; no three-head assumption is hard-coded.
 
-The original 25 configurations remain in this directory as the completed
-screening design. `tools/train_batch_01234.py` now targets the follow-up
-three-seed queue under `seed_reproduction/`; see its README for the current run
-commands and output files. The parent-directory YAML files are retained as an
-immutable record of the completed screen and are no longer the active runner
+The original 25 configurations and the follow-up three-seed queue remain here
+as completed experiment records. `tools/train_batch_01234.py` now targets the
+separate `mixnet_glrf/` queue; these SAA files are no longer the active runner
 queue.
 
 All training, data, optimizer, scheduler, early-stopping, pretrained-weight,

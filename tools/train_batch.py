@@ -60,6 +60,7 @@ if str(PROJECT_ROOT) not in sys.path:
 import src.models  # noqa: E402,F401 - 导入时完成模型、骨干网络和损失函数注册。
 from src.engine import ComponentBuilder, Trainer  # noqa: E402
 from src.schemas import TrainingConfig  # noqa: E402
+from src.utils import batch_size_of, move_to_device  # noqa: E402
 
 
 def resolve_project_path(value: str | Path) -> Path:
@@ -203,7 +204,7 @@ def identify_hard_adjacent_samples(
     with torch.no_grad():
         for batch in detection_loader:
             images, labels, paths = batch
-            images = images.to(trainer.device)
+            images = move_to_device(images, trainer.device)
             labels_device = labels.to(trainer.device)
             outputs = model(images)
             logits = outputs[0] if isinstance(outputs, tuple) else outputs
@@ -437,19 +438,31 @@ def profile_model_complexity(
     was_training = model.training
     try:
         model.eval()
-        dummy_input = torch.zeros(1, 3, image_size, image_size, device=device)
+        profile_input_builder = getattr(model, 'make_profile_input', None)
+        if callable(profile_input_builder):
+            dummy_input = profile_input_builder(1, device, image_size)
+        else:
+            dummy_input = torch.zeros(1, 3, image_size, image_size, device=device)
         with torch.no_grad():
             model(dummy_input)
     finally:
         for hook in hooks:
             hook.remove()
         model.train(was_training)
+    input_description_getter = getattr(model, 'profile_input_description', None)
+    input_description = (
+        str(input_description_getter())
+        if callable(input_description_getter)
+        else f"one {image_size}x{image_size} image"
+    )
     return {
         'parameters_total': int(total_parameters),
         'parameters_trainable': int(trainable_parameters),
         'flops': int(flops),
         'flops_g': float(flops / 1_000_000_000),
-        'flops_method': 'single 224x224 forward; Conv1d/Conv2d/Linear; multiply-add=2 FLOPs',
+        'flops_method': (
+            f'{input_description}; Conv1d/Conv2d/Linear; multiply-add=2 FLOPs'
+        ),
     }
 
 
@@ -465,7 +478,7 @@ def measure_inference_time(
     sample_count = 0
     with torch.no_grad():
         for batch in dataloader:
-            images = batch[0].to(device)
+            images = move_to_device(batch[0], device)
             if device.type == 'cuda':
                 torch.cuda.synchronize(device)
             started_at = time.perf_counter()
@@ -473,7 +486,7 @@ def measure_inference_time(
             if device.type == 'cuda':
                 torch.cuda.synchronize(device)
             elapsed_seconds += time.perf_counter() - started_at
-            sample_count += int(images.shape[0])
+            sample_count += batch_size_of(images)
     model.train(was_training)
     return {
         'inference_time_seconds': elapsed_seconds,
@@ -517,7 +530,7 @@ def save_ordinal_representation_artifacts(trainer: Trainer) -> Dict[str, Any]:
 
     with torch.no_grad():
         for batch in trainer.test_loader:
-            images = batch[0].to(trainer.device)
+            images = move_to_device(batch[0], trainer.device)
             labels = batch[1]
             paths = batch[2] if len(batch) >= 3 else [''] * int(labels.shape[0])
             outputs = model(images)
@@ -698,7 +711,7 @@ def save_probabilistic_prediction_csv(trainer: Trainer) -> Dict[str, Any]:
     total_samples = 0
     with torch.no_grad():
         for batch in trainer.test_loader:
-            images = batch[0].to(trainer.device)
+            images = move_to_device(batch[0], trainer.device)
             labels = batch[1].detach().cpu()
             paths = batch[2] if len(batch) >= 3 else [''] * int(labels.shape[0])
             outputs = model(images)
@@ -819,11 +832,13 @@ def save_test_prediction_csv(trainer: Trainer) -> Dict[str, Any]:
     score_names: List[str] | None = None
     classification_probabilities = False
     correct_count = 0
+    has_fusion_diagnostics = False
+    max_local_weights = 0
 
     try:
         with torch.no_grad():
             for batch in trainer.test_loader:
-                images = batch[0].to(trainer.device)
+                images = move_to_device(batch[0], trainer.device)
                 labels = batch[1].detach().cpu()
                 paths = batch[2] if len(batch) >= 3 else [''] * int(labels.shape[0])
                 outputs, sample_count, _ = trainer.evaluator._forward_with_optional_tta(
@@ -856,6 +871,42 @@ def save_test_prediction_csv(trainer: Trainer) -> Dict[str, Any]:
                     else None
                 )
 
+                diagnostics = trainer.evaluator.get_fusion_diagnostics()
+                fusion_weights_cpu = None
+                local_weights_cpu = None
+                global_predictions_cpu = None
+                local_predictions_cpu = None
+                fusion_weights = diagnostics.get('global_local_weights')
+                local_weights = diagnostics.get('local_weights')
+                global_logits = diagnostics.get('global_logits')
+                local_logits = diagnostics.get('local_logits')
+                if (
+                    torch.is_tensor(fusion_weights)
+                    and fusion_weights.ndim == 2
+                    and int(fusion_weights.shape[0]) == int(sample_count)
+                    and int(fusion_weights.shape[1]) == 2
+                ):
+                    has_fusion_diagnostics = True
+                    fusion_weights_cpu = fusion_weights.detach().float().cpu()
+                    if (
+                        torch.is_tensor(local_weights)
+                        and local_weights.ndim == 2
+                        and int(local_weights.shape[0]) == int(sample_count)
+                    ):
+                        local_weights_cpu = local_weights.detach().float().cpu()
+                        max_local_weights = max(
+                            max_local_weights,
+                            int(local_weights_cpu.shape[1]),
+                        )
+                    if torch.is_tensor(global_logits):
+                        global_predictions_cpu = (
+                            global_logits.argmax(dim=1).detach().cpu()
+                        )
+                    if torch.is_tensor(local_logits):
+                        local_predictions_cpu = (
+                            local_logits.argmax(dim=1).detach().cpu()
+                        )
+
                 for index, path in enumerate(paths):
                     true_label = int(labels[index].item())
                     pred_label = int(predictions[index].item())
@@ -883,6 +934,24 @@ def save_test_prediction_csv(trainer: Trainer) -> Dict[str, Any]:
                             else None
                         ),
                     }
+                    if fusion_weights_cpu is not None:
+                        row['global_weight'] = float(fusion_weights_cpu[index, 0].item())
+                        row['local_weight'] = float(fusion_weights_cpu[index, 1].item())
+                        if local_weights_cpu is not None:
+                            for local_index in range(int(local_weights_cpu.shape[1])):
+                                row[f'local_w{local_index + 1}'] = float(
+                                    local_weights_cpu[index, local_index].item()
+                                )
+                        if global_predictions_cpu is not None:
+                            row['global_pred_label'] = int(
+                                global_predictions_cpu[index].item()
+                            )
+                        if local_predictions_cpu is not None:
+                            local_pred_label = int(local_predictions_cpu[index].item())
+                            row['local_pred_label'] = local_pred_label
+                            row['global_local_disagreement'] = int(
+                                row.get('global_pred_label') != local_pred_label
+                            )
                     for score_index, score_name in enumerate(score_names):
                         row[f'logit_{score_name}'] = float(
                             scores[index, score_index].item()
@@ -907,6 +976,19 @@ def save_test_prediction_csv(trainer: Trainer) -> Dict[str, Any]:
         'abs_error',
         'max_probability',
     ]
+    if has_fusion_diagnostics:
+        fieldnames.extend(['global_weight', 'local_weight'])
+        fieldnames.extend(
+            f'local_w{local_index}'
+            for local_index in range(1, max_local_weights + 1)
+        )
+        fieldnames.extend(
+            [
+                'global_pred_label',
+                'local_pred_label',
+                'global_local_disagreement',
+            ]
+        )
     fieldnames.extend(f'logit_{name}' for name in score_names)
     if classification_probabilities:
         fieldnames.extend(f'prob_{name}' for name in score_names)
@@ -1072,6 +1154,13 @@ def _result_to_csv_row(
         'wrong_mean_variance': metrics.get('wrong_mean_variance'),
         'correct_mean_max_prob': metrics.get('correct_mean_max_prob'),
         'wrong_mean_max_prob': metrics.get('wrong_mean_max_prob'),
+        'glrf_global_weight': metrics.get('glrf_global_weight'),
+        'glrf_local_weight': metrics.get('glrf_local_weight'),
+        'glrf_local_1_weight': metrics.get('glrf_local_1_weight'),
+        'glrf_local_2_weight': metrics.get('glrf_local_2_weight'),
+        'glrf_global_local_disagreement_rate': metrics.get(
+            'glrf_global_local_disagreement_rate'
+        ),
         'class_wise_metrics': json.dumps(
             metrics.get('class_wise_metrics') or {},
             ensure_ascii=False,
@@ -1087,6 +1176,13 @@ def _result_to_csv_row(
         'config_path': result.get('config_path'),
         'run_directory': result.get('run_directory'),
     }
+    for class_index in range(5):
+        prefix = f'glrf_class_{class_index}'
+        row[f'{prefix}_global_weight'] = metrics.get(f'{prefix}_global_weight')
+        row[f'{prefix}_local_weight'] = metrics.get(f'{prefix}_local_weight')
+        row[f'{prefix}_disagreement_rate'] = metrics.get(
+            f'{prefix}_disagreement_rate'
+        )
     if fold_name is not None:
         row['fold'] = fold_name
     return row
@@ -1125,6 +1221,44 @@ def _mixnet_saa_config_columns(result: Dict[str, Any]) -> Dict[str, Any]:
         'saa_applied_blocks': json.dumps(
             list((saa_summary.get('applied_blocks') or {}).keys()),
             ensure_ascii=False,
+        ),
+    }
+
+
+def _glrf_config_columns(result: Dict[str, Any]) -> Dict[str, Any]:
+    '''Extract the controlled GLRF ablation variables for its summary row.'''
+    config_path = result.get('config_path')
+    if not config_path:
+        return {}
+    model_config = load_yaml_mapping(Path(str(config_path)), 'GLRF 妯″瀷閰嶇疆')
+    model = model_config.get('model') or {}
+    train = model_config.get('train') or {}
+    data = model_config.get('data') or {}
+    transform = data.get('train_transform') or {}
+    is_glrf = model.get('type') == 'glrf_classifier'
+    batch_size = train.get('batch_size', 32)
+    accumulation_steps = train.get('accumulation_steps', 1)
+    return {
+        'random_seed': model_config.get('random_seed'),
+        'glrf_variant': model_config.get('glrf_variant'),
+        'glrf_enabled': is_glrf,
+        'glrf_local_fusion': model.get('local_fusion') if is_glrf else None,
+        'glrf_global_local_fusion': (
+            model.get('global_local_fusion') if is_glrf else None
+        ),
+        'glrf_projection_dim': model.get('projection_dim') if is_glrf else None,
+        'glrf_num_local_views': (
+            transform.get('num_local_views') if is_glrf else 0
+        ),
+        'glrf_crop_size': transform.get('crop_size') if is_glrf else None,
+        'glrf_global_size': transform.get('global_size') if is_glrf else 408,
+        'glrf_local_size': transform.get('local_size') if is_glrf else None,
+        'physical_batch_size': batch_size,
+        'accumulation_steps': accumulation_steps,
+        'effective_batch_size': (
+            int(batch_size) * int(accumulation_steps)
+            if batch_size is not None and accumulation_steps is not None
+            else None
         ),
     }
 
@@ -1204,6 +1338,11 @@ def write_ablation_csv_files(
         if 'mixnet_saa_fusion/seed_reproduction/'
         in str(result.get('config_path', ''))
     ]
+    mixnet_glrf_results = [
+        result
+        for result in results
+        if 'mixnet_glrf/' in str(result.get('config_path', ''))
+    ]
     written_paths: List[Path] = []
     for filename, group_results, fold_name in (
         ('multiscale_ablation_summary.csv', multiscale_results, None),
@@ -1268,12 +1407,19 @@ def write_ablation_csv_files(
             mixnet_saa_fusion_results,
             None,
         ),
+        (
+            'mixnet_glrf_summary.csv',
+            mixnet_glrf_results,
+            None,
+        ),
     ):
         rows = []
         for result in group_results:
             row = _result_to_csv_row(result, batch_timestamp, fold_name)
             if filename == 'mixnet_saa_fusion_summary.csv':
                 row.update(_mixnet_saa_config_columns(result))
+            if filename == 'mixnet_glrf_summary.csv':
+                row.update(_glrf_config_columns(result))
             rows.append(row)
         if rows:
             path = runs_root / filename

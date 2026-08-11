@@ -1,0 +1,7 @@
+# Controlled Global-Local Reliability Fusion ablation queue.
+glrf_a0_baseline
+glrf_a1_global_only
+glrf_a2_mean_mean
+glrf_a3_reliability_mean
+glrf_a4_mean_gate
+glrf_a5_full

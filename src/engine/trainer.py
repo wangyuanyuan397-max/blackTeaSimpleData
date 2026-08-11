@@ -46,7 +46,7 @@ from tqdm import tqdm
 import yaml
 
 from ..schemas import TrainingConfig, load_config
-from ..utils import configure_logging, get_logger, ModelStrategy
+from ..utils import configure_logging, get_logger, ModelStrategy, move_to_device
 from .builder import ComponentBuilder
 from .evaluator import Evaluator
 from .hooks import (
@@ -728,11 +728,17 @@ class Trainer:
 
     def _apply_batch_augmentation(
         self,
-        images: torch.Tensor,
+        images: Any,
         labels: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, float, Optional[str]]:
+    ) -> tuple[Any, torch.Tensor, torch.Tensor, float, Optional[str]]:
         cfg = self.batch_augmentation_cfg
-        if cfg is None or images.ndim != 4 or labels.ndim != 1 or images.size(0) < 2:
+        if (
+            cfg is None
+            or not torch.is_tensor(images)
+            or images.ndim != 4
+            or labels.ndim != 1
+            or images.size(0) < 2
+        ):
             return images, labels, labels, 1.0, None
         if float(torch.rand((), device=images.device).item()) > cfg["prob"]:
             return images, labels, labels, 1.0, None
@@ -855,7 +861,7 @@ class Trainer:
     
     def _train_step(
         self,
-        images: torch.Tensor,
+        images: Any,
         labels: torch.Tensor,
         batch_idx: int = 0,
         total_batches: int = 1,
@@ -875,7 +881,7 @@ class Trainer:
         """
         # 移动到设(
         # 训练阶段输入通常是 [B, C, H, W]。
-        images = images.to(self.device)
+        images = move_to_device(images, self.device)
         labels = labels.to(self.device)
         extra_targets = self._move_extra_targets_to_device(extra_targets, self.device)
         images, labels_a, labels_b, lam, augmentation_name = self._apply_batch_augmentation(

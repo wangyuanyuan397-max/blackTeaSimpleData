@@ -12,7 +12,9 @@ All non-seed settings remain fixed by
 `configs/fixed_split_01234_BaSic_grid30_408_train.yaml`. The queue is ordered
 by seed so an interrupted batch still leaves complete within-seed comparisons.
 
-Run validation or training:
+This queue is retained as a completed experiment record. The current
+`tools/train_batch_01234.py` entry point targets `mixnet_glrf/`, so the commands
+below describe the original runner state and are not the active queue now:
 
 ```powershell
 python tools\train_batch_01234.py --list-models

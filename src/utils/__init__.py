@@ -18,6 +18,7 @@ from .exceptions import (
     TrainingError,
 )
 from .logger import configure_logging, get_logger
+from .batch import batch_size_of, move_to_device
 from .registry import BACKBONES, DATASETS, HEADS, LOSSES, MODELS, TRANSFORMS, Registry
 from .strategy import ModelStrategy, build_strategy, validate_strategy_config
 
@@ -34,6 +35,8 @@ __all__ = [
     "validate_strategy_config",
     "configure_logging",
     "get_logger",
+    "move_to_device",
+    "batch_size_of",
     "BlackTeaError",
     "ConfigError",
     "ConfigValidationError",

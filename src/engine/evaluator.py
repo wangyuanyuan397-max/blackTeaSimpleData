@@ -40,6 +40,7 @@ from tqdm import tqdm
 
 from ..utils.strategy import ModelStrategy, OrdinalRegressionStrategy
 from ..utils.exceptions import EvaluationError
+from ..utils.batch import batch_size_of, move_to_device
 
 
 # 2026-03-20 Codex: 新增有序任务评估指标，方便后续按 MAE/QWK 做选模与早停。
@@ -146,6 +147,16 @@ class Evaluator:
         if self.tta_mode in {"vote", "topk"}:
             self.tta_compare = False
             self.tta_compare_modes = []
+
+    def get_fusion_diagnostics(self) -> Dict[str, Any]:
+        """Return diagnostics produced by the most recent model forward."""
+
+        model = self.model.module if hasattr(self.model, "module") else self.model
+        getter = getattr(model, "get_fusion_diagnostics", None)
+        if not callable(getter):
+            return {}
+        diagnostics = getter()
+        return diagnostics if isinstance(diagnostics, dict) else {}
 
     @staticmethod
     def _move_extra_targets_to_device(extra_targets: Optional[Dict[str, Any]], device: torch.device):
@@ -289,7 +300,7 @@ class Evaluator:
 
         return torch.log(agg.clamp_min(1e-12))
 
-    def _forward_with_optional_tta(self, images: torch.Tensor) -> Tuple[torch.Tensor, int, Dict[str, torch.Tensor]]:
+    def _forward_with_optional_tta(self, images: Any) -> Tuple[torch.Tensor, int, Dict[str, torch.Tensor]]:
         """
         Support both:
         - normal input: [B, C, H, W]
@@ -303,6 +314,10 @@ class Evaluator:
         """
         # 5D 输入表示 TTA：
         # [B, N, C, H, W]，其中 N 可能是 5-crop 的 5，也可能是滑窗的 63。
+        if isinstance(images, dict):
+            outputs = self.model(images)
+            return outputs, batch_size_of(images), {}
+
         if images.dim() == 5:
             bsz, ncrops, c, h, w = images.shape
 
@@ -433,6 +448,12 @@ class Evaluator:
             # 2026-03-20 Codex: 验证阶段直接缓存全部预测，避免上层重复跑一遍才能算 MAE/QWK。
             all_predictions = []
             all_labels = []
+            fusion_sample_count = 0
+            fusion_weight_sums = np.zeros(2, dtype=np.float64)
+            local_weight_sums: Optional[np.ndarray] = None
+            fusion_class_stats: Dict[int, Dict[str, float]] = {}
+            disagreement_count = 0
+            disagreement_sample_count = 0
             
             with torch.no_grad():
                 pbar = tqdm(dataloader, desc=desc, leave=False)
@@ -456,7 +477,7 @@ class Evaluator:
                     
                     # 这里 images 既可能是 [B, C, H, W]，
                     # 也可能是 [B, N, C, H, W]（滑窗 / 五裁剪）。
-                    images = images.to(self.device)
+                    images = move_to_device(images, self.device)
                     labels = labels.to(self.device)
                     extra_targets = self._move_extra_targets_to_device(extra_targets, self.device)
                     
@@ -478,6 +499,65 @@ class Evaluator:
                     predictions = self.strategy.get_predictions(outputs)
                     all_predictions.append(predictions.detach().cpu().numpy())
                     all_labels.append(labels.detach().cpu().numpy())
+
+                    diagnostics = self.get_fusion_diagnostics()
+                    fusion_weights = diagnostics.get("global_local_weights")
+                    local_weights = diagnostics.get("local_weights")
+                    global_logits = diagnostics.get("global_logits")
+                    local_logits = diagnostics.get("local_logits")
+                    if (
+                        torch.is_tensor(fusion_weights)
+                        and fusion_weights.ndim == 2
+                        and fusion_weights.size(0) == labels.size(0)
+                        and fusion_weights.size(1) == 2
+                    ):
+                        fusion_cpu = fusion_weights.detach().float().cpu().numpy()
+                        labels_cpu = labels.detach().cpu().numpy()
+                        fusion_weight_sums += fusion_cpu.sum(axis=0)
+                        fusion_sample_count += int(fusion_cpu.shape[0])
+                        if torch.is_tensor(local_weights) and local_weights.ndim == 2:
+                            current_local_sums = (
+                                local_weights.detach().float().cpu().numpy().sum(axis=0)
+                            )
+                            if local_weight_sums is None:
+                                local_weight_sums = np.zeros_like(
+                                    current_local_sums,
+                                    dtype=np.float64,
+                                )
+                            if local_weight_sums.shape == current_local_sums.shape:
+                                local_weight_sums += current_local_sums
+
+                        disagreement = None
+                        if torch.is_tensor(global_logits) and torch.is_tensor(local_logits):
+                            disagreement = (
+                                global_logits.argmax(dim=1)
+                                .ne(local_logits.argmax(dim=1))
+                                .detach()
+                                .cpu()
+                                .numpy()
+                            )
+                            disagreement_count += int(disagreement.sum())
+                            disagreement_sample_count += int(disagreement.size)
+
+                        for class_index in np.unique(labels_cpu):
+                            class_index = int(class_index)
+                            mask = labels_cpu == class_index
+                            stats = fusion_class_stats.setdefault(
+                                class_index,
+                                {
+                                    "count": 0.0,
+                                    "global_sum": 0.0,
+                                    "local_sum": 0.0,
+                                    "disagreement_count": 0.0,
+                                    "disagreement_total": 0.0,
+                                },
+                            )
+                            stats["count"] += float(mask.sum())
+                            stats["global_sum"] += float(fusion_cpu[mask, 0].sum())
+                            stats["local_sum"] += float(fusion_cpu[mask, 1].sum())
+                            if disagreement is not None:
+                                stats["disagreement_count"] += float(disagreement[mask].sum())
+                                stats["disagreement_total"] += float(mask.sum())
 
                     if extra_outputs:
                         if "extra_corrects" not in locals():
@@ -536,6 +616,38 @@ class Evaluator:
             if "aux_metric_sums" in locals():
                 for metric_name, metric_sum in aux_metric_sums.items():
                     metrics[metric_name] = metric_sum / total_samples if total_samples > 0 else 0.0
+
+            if fusion_sample_count > 0:
+                metrics["glrf_global_weight"] = float(
+                    fusion_weight_sums[0] / fusion_sample_count
+                )
+                metrics["glrf_local_weight"] = float(
+                    fusion_weight_sums[1] / fusion_sample_count
+                )
+                if local_weight_sums is not None:
+                    for local_index, weight_sum in enumerate(local_weight_sums, start=1):
+                        metrics[f"glrf_local_{local_index}_weight"] = float(
+                            weight_sum / fusion_sample_count
+                        )
+                if disagreement_sample_count > 0:
+                    metrics["glrf_global_local_disagreement_rate"] = float(
+                        disagreement_count / disagreement_sample_count
+                    )
+                for class_index, stats in sorted(fusion_class_stats.items()):
+                    class_count = stats["count"]
+                    if class_count <= 0:
+                        continue
+                    prefix = f"glrf_class_{class_index}"
+                    metrics[f"{prefix}_global_weight"] = float(
+                        stats["global_sum"] / class_count
+                    )
+                    metrics[f"{prefix}_local_weight"] = float(
+                        stats["local_sum"] / class_count
+                    )
+                    if stats["disagreement_total"] > 0:
+                        metrics[f"{prefix}_disagreement_rate"] = float(
+                            stats["disagreement_count"] / stats["disagreement_total"]
+                        )
             
             if loss_fn is not None:
                 metrics['loss'] = total_loss / total_samples if total_samples > 0 else 0.0
@@ -582,7 +694,7 @@ class Evaluator:
         try:
             self.model.eval()
             
-            images = images.to(self.device)
+            images = move_to_device(images, self.device)
             labels = labels.to(self.device)
             
             with torch.no_grad():
@@ -646,7 +758,7 @@ class Evaluator:
                     else:
                         images, labels = batch
                     
-                    images = images.to(self.device)
+                    images = move_to_device(images, self.device)
                     
                     # 前向传播（支持 5-crop TTA）
                     outputs, _, _ = self._forward_with_optional_tta(images)
