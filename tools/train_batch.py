@@ -1104,6 +1104,9 @@ def evaluate_best_checkpoint(
                     "redundancy_by_scope": redundancy_by_scope,
                 }
             )
+    orthoshot_objective = getattr(trainer, "orthoshot_objective", None)
+    if orthoshot_objective is not None:
+        result["mixnet_orthoshot"] = to_builtin(orthoshot_objective.summary())
     result['training_time_seconds'] = training_time_seconds
     result.update(compute_classification_details(confusion_matrix, class_names))
     image_size = int(getattr(trainer.config.data, 'image_size', 224) or 224)
@@ -1365,6 +1368,90 @@ def _mixnet_repr_config_columns(result: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _mixnet_orthoshot_config_columns(result: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract Ortho-MixNet controls and best-checkpoint mechanism metrics."""
+    config_path = result.get('config_path')
+    if not config_path:
+        return {}
+    model_config = load_yaml_mapping(Path(str(config_path)), 'Ortho-MixNet model config')
+    train = model_config.get('train') or {}
+    data = model_config.get('data') or {}
+    train_transform = data.get('train_transform') or {}
+    orthoshot = train.get('orthoshot') or {}
+    orthogonal = orthoshot.get('orthogonal') or {}
+    scope = orthogonal.get('scope') or {}
+    augmentation = orthoshot.get('augmentation') or {}
+    maxup = orthoshot.get('maxup') or {}
+    metrics = result.get('metrics') or {}
+    summary = metrics.get('mixnet_orthoshot') or {}
+    regularizer_summary = summary.get('orthogonal') or {}
+    best_metrics = metrics.get('best_validation_metrics') or {}
+    batch_size = train.get('batch_size', 32)
+    accumulation_steps = train.get('accumulation_steps', 1)
+    candidates = list(maxup.get('candidates') or []) if maxup.get('enabled') else []
+    return {
+        'random_seed': model_config.get('random_seed'),
+        'orthoshot_variant': model_config.get('orthoshot_variant'),
+        'orthoshot_enabled': bool(orthoshot),
+        'orth_method': orthogonal.get('method') if orthogonal.get('enabled') else None,
+        'orth_lambda': orthogonal.get('lambda') if orthogonal.get('enabled') else 0.0,
+        'orth_warmup_epochs': (
+            orthogonal.get('warmup_epochs') if orthogonal.get('enabled') else 0
+        ),
+        'orth_expansion': bool(scope.get('expansion', False)),
+        'orth_projection': bool(scope.get('projection', False)),
+        'orth_depthwise': bool(scope.get('depthwise', False)),
+        'augmentation_mode': augmentation.get('mode', 'none'),
+        'augmentation_probability': augmentation.get('probability'),
+        'selfmix_patch_ratio': augmentation.get('selfmix_patch_ratio'),
+        'selfmix_probability': augmentation.get('selfmix_probability'),
+        'cutmix_alpha': augmentation.get('cutmix_alpha'),
+        'mixup_alpha': augmentation.get('mixup_alpha'),
+        'horizontal_flip_probability': train_transform.get(
+            'horizontal_flip_probability', 0.5
+        ),
+        'vertical_flip_probability': train_transform.get(
+            'vertical_flip_probability', 0.5
+        ),
+        'rotation_degrees': train_transform.get('rotation_degrees', 0.0),
+        'rotation_probability': train_transform.get('rotation_probability', 0.0),
+        'color_jitter': train_transform.get('color_jitter', 0.0),
+        'random_erasing_probability': train_transform.get(
+            'random_erasing_probability', 0.0
+        ),
+        'random_crop_scale': json.dumps(
+            train_transform.get('random_crop_scale', [1.0, 1.0]),
+            ensure_ascii=False,
+        ),
+        'maxup_enabled': bool(maxup.get('enabled', False)),
+        'maxup_candidates': json.dumps(candidates, ensure_ascii=False),
+        'maxup_candidate_count': len(candidates),
+        'physical_batch_size': batch_size,
+        'accumulation_steps': accumulation_steps,
+        'effective_base_batch_size': int(batch_size) * int(accumulation_steps),
+        'maxup_forward_batch_size': int(batch_size) * max(len(candidates), 1),
+        'orth_target_layer_count': regularizer_summary.get('target_layer_count'),
+        'orth_target_layer_counts': json.dumps(
+            regularizer_summary.get('target_layer_counts') or {},
+            ensure_ascii=False,
+        ),
+        'best_train_ce_loss': best_metrics.get('train_ce_loss'),
+        'best_train_orthogonal_loss': best_metrics.get('train_orthogonal_loss'),
+        'best_train_weighted_orthogonal_loss': best_metrics.get(
+            'train_weighted_orthogonal_loss'
+        ),
+        'best_train_orthogonal_ce_ratio': best_metrics.get(
+            'train_orthogonal_ce_ratio'
+        ),
+        'best_mean_expansion_filter_cosine': best_metrics.get(
+            'train_mean_expansion_filter_cosine'
+        ),
+        'best_mean_projection_filter_cosine': best_metrics.get(
+            'train_mean_projection_filter_cosine'
+        ),
+    }
+
+
 def _write_csv_rows(path: Path, rows: List[Dict[str, Any]]) -> None:
     '''以 UTF-8 BOM 保存表格，便于 Excel 直接打开中文字段。'''
     if not rows:
@@ -1450,6 +1537,11 @@ def write_ablation_csv_files(
         for result in results
         if 'mixnet_repr/' in str(result.get('config_path', ''))
     ]
+    mixnet_orthoshot_results = [
+        result
+        for result in results
+        if 'mixnet_orthoshot/' in str(result.get('config_path', ''))
+    ]
     written_paths: List[Path] = []
     for filename, group_results, fold_name in (
         ('multiscale_ablation_summary.csv', multiscale_results, None),
@@ -1524,6 +1616,11 @@ def write_ablation_csv_files(
             mixnet_repr_results,
             None,
         ),
+        (
+            'mixnet_orthoshot_summary.csv',
+            mixnet_orthoshot_results,
+            None,
+        ),
     ):
         rows = []
         for result in group_results:
@@ -1534,6 +1631,8 @@ def write_ablation_csv_files(
                 row.update(_glrf_config_columns(result))
             if filename == 'mixnet_repr_summary.csv':
                 row.update(_mixnet_repr_config_columns(result))
+            if filename == 'mixnet_orthoshot_summary.csv':
+                row.update(_mixnet_orthoshot_config_columns(result))
             rows.append(row)
         if rows:
             path = runs_root / filename

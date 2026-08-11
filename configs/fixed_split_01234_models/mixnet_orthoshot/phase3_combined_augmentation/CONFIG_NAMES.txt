@@ -1,0 +1,7 @@
+ortho_c01_cutmix_no_hflip
+ortho_c02_cutmix_rotation15
+ortho_c03_selfmix_no_hflip
+ortho_c04_selfmix_rotation15
+ortho_c05_cutmix_selfmix_no_hflip
+ortho_c06_cutmix_selfmix_baseline_flip
+ortho_c07_cutmix_selfmix_rotation15

@@ -204,6 +204,28 @@ class Trainer:
                 "batch_augmentation_enabled",
                 **self.batch_augmentation_cfg,
             )
+        self.orthoshot_objective = None
+        self._last_train_step_diagnostics: Dict[str, float] = {}
+        orthoshot_cfg = self._get_train_option("orthoshot", None)
+        if isinstance(orthoshot_cfg, dict) and orthoshot_cfg.get("enabled", True):
+            if self.batch_augmentation_cfg is not None:
+                raise ValueError(
+                    "train.orthoshot and train.batch_augmentation cannot both be enabled; "
+                    "configure mixing under train.orthoshot.augmentation."
+                )
+            from .orthoshot import OrthoShotObjective
+
+            self.orthoshot_objective = OrthoShotObjective(
+                self.model,
+                self.loss_fn,
+                orthoshot_cfg,
+                logger=self.logger,
+            )
+            train_transform = getattr(self.train_loader.dataset, "transform", None)
+            self.logger.info(
+                "orthoshot_train_transform_resolved",
+                transform=repr(train_transform),
+            )
 
     def set_sample_weights_by_path(self, sample_weights: Dict[str, float]) -> None:
         """设置训练集逐样本权重；未出现在字典中的样本默认权重为 1。"""
@@ -303,6 +325,10 @@ class Trainer:
                     "val_mae": val_metrics.get("mae", 0.0),
                     "val_qwk": val_metrics.get("qwk", 0.0),
                 }
+                for metric_name, metric_value in train_metrics.items():
+                    if metric_name in {"loss", "accuracy"}:
+                        continue
+                    metrics[f"train_{metric_name}"] = metric_value
                 # 2026-03-20 Codex: 允许用组合指标做选模，但默认不改变原始 baseline 行为。
                 monitor_score = self._compute_monitor_score(metrics)
                 if monitor_score is not None:
@@ -847,6 +873,7 @@ class Trainer:
         total_loss = 0.0
         total_correct = 0
         total_samples = 0
+        diagnostic_totals: Dict[str, float] = {}
         
         pbar = tqdm(self.train_loader, desc=f"Epoch {epoch+1}/{self.config.train.epochs}")
         
@@ -902,6 +929,11 @@ class Trainer:
             total_loss += loss * total
             total_correct += correct
             total_samples += total
+            for diagnostic_name, diagnostic_value in self._last_train_step_diagnostics.items():
+                diagnostic_totals[diagnostic_name] = (
+                    diagnostic_totals.get(diagnostic_name, 0.0)
+                    + float(diagnostic_value) * total
+                )
             
             # 更新进度(
             pbar.set_postfix({
@@ -916,6 +948,10 @@ class Trainer:
             "loss": total_loss / total_samples,
             "accuracy": total_correct / total_samples
         }
+        for diagnostic_name, diagnostic_total in diagnostic_totals.items():
+            metrics[diagnostic_name] = diagnostic_total / total_samples
+        if self.orthoshot_objective is not None:
+            metrics.update(self.orthoshot_objective.epoch_metrics())
         
         return metrics
     
@@ -944,23 +980,37 @@ class Trainer:
         images = move_to_device(images, self.device)
         labels = labels.to(self.device)
         extra_targets = self._move_extra_targets_to_device(extra_targets, self.device)
-        images, labels_a, labels_b, lam, augmentation_name = self._apply_batch_augmentation(
-            images,
-            labels,
-        )
-        
-        # 前向传播
-        # outputs 对普通分类模型通常是 [B, Num_Classes]；
-        # 对某些带特征返回的模型则可能是 (logits, features)。
-        outputs = self.model(images)
-        
-        # Pass full outputs to loss_fn so CE+CLOC / CE+AOL can use embeddings.
-        if augmentation_name is None:
-            loss = self._compute_loss(outputs, labels, extra_targets=extra_targets)
+        self._last_train_step_diagnostics = {}
+        if self.orthoshot_objective is not None:
+            if extra_targets and "sample_weights" in extra_targets:
+                raise ValueError(
+                    "Ortho-Shot does not support per-sample hard-mining weights."
+                )
+            loss, outputs, diagnostics = self.orthoshot_objective.compute(
+                self.model,
+                images,
+                labels,
+                epoch=self.current_epoch,
+            )
+            self._last_train_step_diagnostics = diagnostics
         else:
-            loss_a = self._compute_loss(outputs, labels_a)
-            loss_b = self._compute_loss(outputs, labels_b)
-            loss = loss_a * lam + loss_b * (1.0 - lam)
+            images, labels_a, labels_b, lam, augmentation_name = self._apply_batch_augmentation(
+                images,
+                labels,
+            )
+
+            # 前向传播
+            # outputs 对普通分类模型通常是 [B, Num_Classes]；
+            # 对某些带特征返回的模型则可能是 (logits, features)。
+            outputs = self.model(images)
+
+            # Pass full outputs to loss_fn so CE+CLOC / CE+AOL can use embeddings.
+            if augmentation_name is None:
+                loss = self._compute_loss(outputs, labels, extra_targets=extra_targets)
+            else:
+                loss_a = self._compute_loss(outputs, labels_a)
+                loss_b = self._compute_loss(outputs, labels_b)
+                loss = loss_a * lam + loss_b * (1.0 - lam)
         
         # 缩放损失 (为了梯度累加)
         # 如果 accumulation_steps=1，则 loss / 1 不变

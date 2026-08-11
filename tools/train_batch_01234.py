@@ -1,7 +1,7 @@
 """Batch runner for the 01234 five-class experiments.
 
 This wrapper reuses tools/train_batch.py while pinning the 01234 BaSiC grid30
-408 common config and the isolated MixNet-S RePr-PWProj queue.
+408 common config and the first, isolated MixNet-S Ortho-Shot/DBT queue.
 """
 
 import importlib.util
@@ -24,11 +24,48 @@ train_batch_base.COMMON_CONFIG = Path(
     "configs/fixed_split_01234_BaSic_grid30_408_train.yaml"
 )
 
+ORTHOSHOT_PHASE_COUNTS = {
+    "phase1_dbt": 12,
+    "phase2_single_augmentation": 16,
+    "phase3_combined_augmentation": 7,
+    "phase4_maxup": 5,
+}
+
+
+def _consume_orthoshot_phase(argv: list[str]) -> str:
+    """Read the wrapper-only phase option before the shared parser runs."""
+    phase = "phase1_dbt"
+    matches = []
+    index = 0
+    while index < len(argv):
+        argument = argv[index]
+        if argument == "--orthoshot-phase":
+            if index + 1 >= len(argv):
+                raise SystemExit("--orthoshot-phase requires a phase name.")
+            matches.append(argv[index + 1])
+            del argv[index : index + 2]
+            continue
+        if argument.startswith("--orthoshot-phase="):
+            matches.append(argument.split("=", 1)[1])
+            del argv[index]
+            continue
+        index += 1
+    if len(matches) > 1:
+        raise SystemExit("--orthoshot-phase may only be specified once.")
+    if matches:
+        phase = matches[0]
+    if phase not in ORTHOSHOT_PHASE_COUNTS:
+        choices = ", ".join(ORTHOSHOT_PHASE_COUNTS)
+        raise SystemExit(f"Unknown Ortho-Shot phase {phase!r}; choose one of: {choices}.")
+    return phase
+
+
+ORTHOSHOT_PHASE = _consume_orthoshot_phase(sys.argv)
 CONFIG_DIR = Path(
-    "configs/fixed_split_01234_models/mixnet_repr"
+    f"configs/fixed_split_01234_models/mixnet_orthoshot/{ORTHOSHOT_PHASE}"
 )
 CONFIG_NAMES_FILE = CONFIG_DIR / "CONFIG_NAMES.txt"
-EXPECTED_CONFIG_COUNT = 19
+EXPECTED_CONFIG_COUNT = ORTHOSHOT_PHASE_COUNTS[ORTHOSHOT_PHASE]
 
 
 def _load_config_names(path: Path) -> tuple[str, ...]:

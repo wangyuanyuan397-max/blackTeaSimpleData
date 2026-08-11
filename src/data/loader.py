@@ -31,6 +31,112 @@ def build_patch_train_transform(image_size: int = 224) -> T.Compose:
     )
 
 
+@TRANSFORMS.register("orthoshot_patch_train")
+def build_orthoshot_patch_train_transform(
+    image_size: int = 224,
+    horizontal_flip_probability: float = 0.5,
+    vertical_flip_probability: float = 0.5,
+    rotation_degrees: float = 0.0,
+    rotation_probability: float = 0.0,
+    color_jitter: float = 0.0,
+    random_erasing_probability: float = 0.0,
+    random_erasing_scale: Sequence[float] = (0.02, 0.15),
+    random_crop_scale: Sequence[float] = (1.0, 1.0),
+    random_crop_ratio: Sequence[float] = (0.95, 1.05),
+) -> T.Compose:
+    """Configurable Ortho-Shot transform with the old flip baseline preserved.
+
+    With every new option disabled and both flip probabilities at 0.5, this is
+    operation-for-operation equivalent to ``patch_train_224``.  Batch-level
+    SelfMix/CutMix/MixUp/MaxUp are intentionally handled by the Trainer.
+    """
+    if int(image_size) <= 0:
+        raise ValueError("image_size must be positive.")
+    if float(rotation_degrees) < 0.0:
+        raise ValueError("rotation_degrees must be non-negative.")
+    if float(color_jitter) < 0.0:
+        raise ValueError("color_jitter must be non-negative.")
+    probabilities = {
+        "horizontal_flip_probability": float(horizontal_flip_probability),
+        "vertical_flip_probability": float(vertical_flip_probability),
+        "rotation_probability": float(rotation_probability),
+        "random_erasing_probability": float(random_erasing_probability),
+    }
+    invalid = {name: value for name, value in probabilities.items() if not 0.0 <= value <= 1.0}
+    if invalid:
+        raise ValueError(f"Ortho-Shot transform probabilities must be in [0, 1]: {invalid}")
+
+    crop_scale = tuple(float(value) for value in random_crop_scale)
+    crop_ratio = tuple(float(value) for value in random_crop_ratio)
+    if len(crop_scale) != 2 or not 0.0 < crop_scale[0] <= crop_scale[1] <= 1.0:
+        raise ValueError("random_crop_scale must contain two ordered values in (0, 1].")
+    if len(crop_ratio) != 2 or not 0.0 < crop_ratio[0] <= crop_ratio[1]:
+        raise ValueError("random_crop_ratio must contain two ordered positive values.")
+
+    operations = []
+    if crop_scale != (1.0, 1.0):
+        operations.append(
+            T.RandomResizedCrop(
+                int(image_size),
+                scale=crop_scale,
+                ratio=crop_ratio,
+                antialias=True,
+            )
+        )
+    else:
+        operations.append(T.Resize((int(image_size), int(image_size)), antialias=True))
+    if probabilities["horizontal_flip_probability"] > 0.0:
+        operations.append(
+            T.RandomHorizontalFlip(p=probabilities["horizontal_flip_probability"])
+        )
+    if probabilities["vertical_flip_probability"] > 0.0:
+        operations.append(
+            T.RandomVerticalFlip(p=probabilities["vertical_flip_probability"])
+        )
+    if float(rotation_degrees) > 0.0 and probabilities["rotation_probability"] > 0.0:
+        rotation = T.RandomRotation(
+            degrees=float(rotation_degrees),
+            interpolation=T.InterpolationMode.BILINEAR,
+        )
+        if probabilities["rotation_probability"] >= 1.0:
+            operations.append(rotation)
+        else:
+            operations.append(
+                T.RandomApply([rotation], p=probabilities["rotation_probability"])
+            )
+    if float(color_jitter) > 0.0:
+        strength = float(color_jitter)
+        operations.append(
+            T.ColorJitter(
+                brightness=strength,
+                contrast=strength,
+                saturation=strength,
+                hue=0.0,
+            )
+        )
+    operations.extend(
+        [
+            T.ToTensor(),
+            T.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+        ]
+    )
+    if probabilities["random_erasing_probability"] > 0.0:
+        erase_scale = tuple(float(value) for value in random_erasing_scale)
+        if len(erase_scale) != 2 or not 0.0 < erase_scale[0] <= erase_scale[1] <= 1.0:
+            raise ValueError(
+                "random_erasing_scale must contain two ordered values in (0, 1]."
+            )
+        operations.append(
+            T.RandomErasing(
+                p=probabilities["random_erasing_probability"],
+                scale=erase_scale,
+                ratio=(0.5, 2.0),
+                value="random",
+            )
+        )
+    return T.Compose(operations)
+
+
 class TwoViewTransform:
     """对同一张图片独立做两次随机增强，供监督对比学习使用。"""
 

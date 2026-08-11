@@ -1,0 +1,12 @@
+name: ortho_c06_cutmix_selfmix_baseline_flip
+orthoshot_variant: C06
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone: {type: timm, model_name: mixnet_s, pretrained: true, input_size: 408}
+  head: {type: linear, drop_rate: 0.0}
+train:
+  orthoshot:
+    enabled: true
+    augmentation: {mode: random_choice, probability: 1.0, choices: [cutmix, selfmix], cutmix_alpha: 1.0, selfmix_probability: 0.5, selfmix_patch_ratio: 0.33}

@@ -1,0 +1,12 @@
+name: ortho_o17_projection_l1em3_warmup5
+orthoshot_variant: O17
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone: {type: timm, model_name: mixnet_s, pretrained: true, input_size: 408}
+  head: {type: linear, drop_rate: 0.0}
+train:
+  orthoshot:
+    enabled: true
+    orthogonal: {enabled: true, method: dbt, lambda: 0.001, warmup_epochs: 5, scope: {expansion: false, projection: true, depthwise: false}, reduction: mean}

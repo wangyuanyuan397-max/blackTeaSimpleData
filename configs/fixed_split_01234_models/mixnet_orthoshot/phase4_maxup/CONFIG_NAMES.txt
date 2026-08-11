@@ -1,0 +1,5 @@
+ortho_m00_no_maxup
+ortho_m01_normal_cutmix
+ortho_m02_normal_selfmix
+ortho_m03_normal_cutmix_selfmix_hflip
+ortho_m04_normal_cutmix_selfmix_rotation

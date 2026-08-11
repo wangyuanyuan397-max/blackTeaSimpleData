@@ -1,0 +1,12 @@
+name: ortho_a04_cutmix_a1p0
+orthoshot_variant: A04
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone: {type: timm, model_name: mixnet_s, pretrained: true, input_size: 408}
+  head: {type: linear, drop_rate: 0.0}
+train:
+  orthoshot:
+    enabled: true
+    augmentation: {mode: cutmix, probability: 0.5, cutmix_alpha: 1.0}

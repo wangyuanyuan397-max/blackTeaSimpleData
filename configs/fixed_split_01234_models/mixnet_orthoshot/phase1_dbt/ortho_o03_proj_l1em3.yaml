@@ -1,0 +1,12 @@
+name: ortho_o03_proj_l1em3
+orthoshot_variant: O03
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone: {type: timm, model_name: mixnet_s, pretrained: true, input_size: 408}
+  head: {type: linear, drop_rate: 0.0}
+train:
+  orthoshot:
+    enabled: true
+    orthogonal: {enabled: true, method: dbt, lambda: 0.001, warmup_epochs: 0, scope: {expansion: false, projection: true, depthwise: false}, reduction: mean}

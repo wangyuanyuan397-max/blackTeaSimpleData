@@ -1,0 +1,15 @@
+name: ortho_m02_normal_selfmix
+orthoshot_variant: M02
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone: {type: timm, model_name: mixnet_s, pretrained: true, input_size: 408}
+  head: {type: linear, drop_rate: 0.0}
+train:
+  batch_size: 16
+  accumulation_steps: 2
+  orthoshot:
+    enabled: true
+    augmentation: {mode: none, selfmix_probability: 0.5, selfmix_patch_ratio: 0.33}
+    maxup: {enabled: true, candidates: [normal, selfmix]}

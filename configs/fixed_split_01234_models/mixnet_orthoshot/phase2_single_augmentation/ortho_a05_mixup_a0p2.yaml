@@ -1,0 +1,12 @@
+name: ortho_a05_mixup_a0p2
+orthoshot_variant: A05
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone: {type: timm, model_name: mixnet_s, pretrained: true, input_size: 408}
+  head: {type: linear, drop_rate: 0.0}
+train:
+  orthoshot:
+    enabled: true
+    augmentation: {mode: mixup, probability: 0.5, mixup_alpha: 0.2}

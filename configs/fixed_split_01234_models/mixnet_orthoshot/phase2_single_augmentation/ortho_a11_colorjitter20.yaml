@@ -1,0 +1,10 @@
+name: ortho_a11_colorjitter20
+orthoshot_variant: A11
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone: {type: timm, model_name: mixnet_s, pretrained: true, input_size: 408}
+  head: {type: linear, drop_rate: 0.0}
+data:
+  train_transform: {type: orthoshot_patch_train, image_size: 408, horizontal_flip_probability: 0.5, vertical_flip_probability: 0.5, color_jitter: 0.20}

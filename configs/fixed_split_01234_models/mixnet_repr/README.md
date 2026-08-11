@@ -23,7 +23,11 @@ Early stopping starts only after the third restore. This guarantees that the
 selected checkpoint is a complete, unmasked network and that all three cycles
 are actually executed.
 
-Run the isolated queue with:
+This queue remains as a completed experiment record. The active
+`tools/train_batch_01234.py` runner now targets the independent
+`mixnet_orthoshot/phase1_dbt/` queue.
+
+Its historical command was:
 
 ```powershell
 python tools\train_batch_01234.py --list-models

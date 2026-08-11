@@ -1,0 +1,10 @@
+name: ortho_a14_randomcrop85
+orthoshot_variant: A14
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone: {type: timm, model_name: mixnet_s, pretrained: true, input_size: 408}
+  head: {type: linear, drop_rate: 0.0}
+data:
+  train_transform: {type: orthoshot_patch_train, image_size: 408, horizontal_flip_probability: 0.5, vertical_flip_probability: 0.5, random_crop_scale: [0.85, 1.0], random_crop_ratio: [0.95, 1.05]}

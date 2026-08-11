@@ -1,0 +1,16 @@
+ortho_a00_baseline
+ortho_a01_selfmix_r33
+ortho_a02_selfmix_r50
+ortho_a03_cutmix_a0p5
+ortho_a04_cutmix_a1p0
+ortho_a05_mixup_a0p2
+ortho_a06_mixup_a0p4
+ortho_a07_remove_hflip
+ortho_a08_rotation15
+ortho_a09_rotation30
+ortho_a10_colorjitter10
+ortho_a11_colorjitter20
+ortho_a12_randomerase25
+ortho_a13_randomerase50
+ortho_a14_randomcrop85
+ortho_a15_randomcrop70

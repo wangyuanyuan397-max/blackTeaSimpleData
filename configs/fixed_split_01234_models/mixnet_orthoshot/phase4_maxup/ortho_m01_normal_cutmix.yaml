@@ -1,0 +1,15 @@
+name: ortho_m01_normal_cutmix
+orthoshot_variant: M01
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone: {type: timm, model_name: mixnet_s, pretrained: true, input_size: 408}
+  head: {type: linear, drop_rate: 0.0}
+train:
+  batch_size: 16
+  accumulation_steps: 2
+  orthoshot:
+    enabled: true
+    augmentation: {mode: none, cutmix_alpha: 1.0}
+    maxup: {enabled: true, candidates: [normal, cutmix]}

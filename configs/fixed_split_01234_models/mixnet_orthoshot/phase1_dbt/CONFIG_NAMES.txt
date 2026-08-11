@@ -1,0 +1,13 @@
+# Canonical, non-duplicate Phase-1 DBT queue.
+ortho_o00_baseline
+ortho_o01_proj_l1em4
+ortho_o02_proj_l3em4
+ortho_o03_proj_l1em3
+ortho_o04_proj_l3em3
+ortho_o05_proj_l1em2
+ortho_o10_expansion_l1em3
+ortho_o12_pw_all_l1em3
+ortho_o13_depthwise_l1em3
+ortho_o14_all_l1em3
+ortho_o15_projection_depthwise_l1em3
+ortho_o17_projection_l1em3_warmup5

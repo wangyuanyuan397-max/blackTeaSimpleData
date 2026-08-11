@@ -1,0 +1,14 @@
+name: ortho_c01_cutmix_no_hflip
+orthoshot_variant: C01
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone: {type: timm, model_name: mixnet_s, pretrained: true, input_size: 408}
+  head: {type: linear, drop_rate: 0.0}
+data:
+  train_transform: {type: orthoshot_patch_train, image_size: 408, horizontal_flip_probability: 0.0, vertical_flip_probability: 0.5}
+train:
+  orthoshot:
+    enabled: true
+    augmentation: {mode: cutmix, probability: 0.5, cutmix_alpha: 1.0}
