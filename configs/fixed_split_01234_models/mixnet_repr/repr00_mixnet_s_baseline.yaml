@@ -1,0 +1,12 @@
+name: repr00_mixnet_s_baseline
+repr_variant: R00
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: timm
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+  head: {type: linear, drop_rate: 0.0}

@@ -22,13 +22,9 @@ the baseline effective batch size of 32. Validation and test local crops use
 fixed top-left and bottom-right anchors so early stopping and final metrics are
 reproducible. Training resamples both local crops on every access.
 
-Run the queue with:
-
-```powershell
-python tools\train_batch_01234.py --list-models
-python tools\train_batch_01234.py --dry-run --device cpu
-python tools\train_batch_01234.py
-```
+These six configurations remain here as completed experiment records.
+`tools/train_batch_01234.py` now targets the separate `mixnet_repr/` queue, so
+the GLRF files are no longer the active runner queue.
 
 Each GLRF test prediction CSV adds global/local weights, both local reliability
 weights, branch predictions, and their disagreement flag. Test metrics include

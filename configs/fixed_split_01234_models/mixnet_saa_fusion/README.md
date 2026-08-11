@@ -22,7 +22,7 @@ block; no three-head assumption is hard-coded.
 
 The original 25 configurations and the follow-up three-seed queue remain here
 as completed experiment records. `tools/train_batch_01234.py` now targets the
-separate `mixnet_glrf/` queue; these SAA files are no longer the active runner
+separate `mixnet_repr/` queue; these SAA files are no longer the active runner
 queue.
 
 All training, data, optimizer, scheduler, early-stopping, pretrained-weight,

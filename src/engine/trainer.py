@@ -217,6 +217,38 @@ class Trainer:
             weighted_samples=len(normalized),
         )
     
+    def _training_controller_target(self) -> Optional[Any]:
+        """Return an optional model-owned training controller.
+
+        Ordinary models do not implement these methods, so their training path
+        remains unchanged. A controller may live on the top-level model or on
+        its backbone; this also works when the model uses DataParallel.
+        """
+        model = self.model.module if hasattr(self.model, "module") else self.model
+        candidates = (model, getattr(model, "backbone", None))
+        controller_methods = (
+            "training_controller_on_train_begin",
+            "training_controller_epoch_start",
+            "training_controller_epoch_end",
+            "training_controller_metrics",
+            "training_controller_on_train_end",
+        )
+        for candidate in candidates:
+            if candidate is not None and any(
+                callable(getattr(candidate, method, None))
+                for method in controller_methods
+            ):
+                return candidate
+        return None
+
+    def _call_training_controller(self, method: str, **kwargs: Any) -> Any:
+        """Call a model-owned lifecycle method when one is available."""
+        target = self._training_controller_target()
+        callback = getattr(target, method, None) if target is not None else None
+        if callable(callback):
+            return callback(**kwargs)
+        return None
+
     def train(self) -> None:
         """
         训练主循(
@@ -226,6 +258,12 @@ class Trainer:
             2. 循环训练每个 epoch
             3. 触发 on_train_end Hook
         """
+        self._call_training_controller(
+            "training_controller_on_train_begin",
+            total_epochs=int(self.config.train.epochs),
+            optimizer=self.optimizer,
+            logger=self.logger,
+        )
         self.hook_manager.trigger("on_train_begin", trainer=self)
         
         try:
@@ -233,10 +271,25 @@ class Trainer:
                 self.current_epoch = epoch
                 self._maybe_transition_staged_training(epoch)
                 self._maybe_apply_progressive_unfreeze(epoch)
+                self._call_training_controller(
+                    "training_controller_epoch_start",
+                    epoch=epoch,
+                    optimizer=self.optimizer,
+                    logger=self.logger,
+                )
                 
                 # 训练一个 epoch
                 # 先训练一个 epoch，再在验证集上评估。
                 train_metrics = self._train_epoch(epoch)
+
+                # Restore training-time structural changes before validation
+                # and checkpoint selection when a controller requests it.
+                self._call_training_controller(
+                    "training_controller_epoch_end",
+                    epoch=epoch,
+                    optimizer=self.optimizer,
+                    logger=self.logger,
+                )
                 
                 # 验证
                 val_metrics = self._validate_epoch(epoch)
@@ -254,6 +307,12 @@ class Trainer:
                 monitor_score = self._compute_monitor_score(metrics)
                 if monitor_score is not None:
                     metrics["monitor_score"] = monitor_score
+
+                controller_metrics = self._call_training_controller(
+                    "training_controller_metrics"
+                )
+                if isinstance(controller_metrics, dict):
+                    metrics.update(controller_metrics)
                 
                 # 记录历史
                 for key, value in metrics.items():
@@ -281,6 +340,7 @@ class Trainer:
         finally:
             # finally 在正常结束/早停/未捕获异常时均会执行
             # 注意：若进程被外部强制 kill (SIGKILL/TerminateProcess) 则不会执行
+            self._call_training_controller("training_controller_on_train_end")
             self.hook_manager.trigger("on_train_end", trainer=self)
 
             # 只要至少完成了一个 epoch，就固定保存本次训练的曲线图。

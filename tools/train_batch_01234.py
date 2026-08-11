@@ -1,7 +1,7 @@
 """Batch runner for the 01234 five-class experiments.
 
 This wrapper reuses tools/train_batch.py while pinning the 01234 BaSiC grid30
-408 common config and the MixNet-S global-local reliability fusion queue.
+408 common config and the isolated MixNet-S RePr-PWProj queue.
 """
 
 import importlib.util
@@ -25,10 +25,10 @@ train_batch_base.COMMON_CONFIG = Path(
 )
 
 CONFIG_DIR = Path(
-    "configs/fixed_split_01234_models/mixnet_glrf"
+    "configs/fixed_split_01234_models/mixnet_repr"
 )
 CONFIG_NAMES_FILE = CONFIG_DIR / "CONFIG_NAMES.txt"
-EXPECTED_CONFIG_COUNT = 6
+EXPECTED_CONFIG_COUNT = 19
 
 
 def _load_config_names(path: Path) -> tuple[str, ...]:

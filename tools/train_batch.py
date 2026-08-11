@@ -1065,6 +1065,45 @@ def evaluate_best_checkpoint(
     saa_summary = getattr(evaluated_backbone, "saa_summary", None)
     if callable(saa_summary):
         result["mixnet_saa"] = to_builtin(saa_summary())
+    repr_summary = getattr(evaluated_backbone, "repr_summary", None)
+    if callable(repr_summary):
+        result["mixnet_repr"] = to_builtin(repr_summary())
+    else:
+        raw_backbone_model = getattr(evaluated_backbone, "model", None)
+        architecture = (
+            (getattr(raw_backbone_model, "default_cfg", {}) or {}).get(
+                "architecture"
+            )
+            if raw_backbone_model is not None
+            else None
+        )
+        run_name = str(getattr(trainer.config, "run_name", "") or "")
+        if architecture == "mixnet_s" and run_name == "repr00_mixnet_s_baseline":
+            from src.models.backbones.mixnet_repr import (
+                summarize_mixnet_projection_redundancy,
+            )
+
+            redundancy_by_scope = summarize_mixnet_projection_redundancy(
+                evaluated_backbone
+            )
+            all_residual = redundancy_by_scope["all_residual"]
+            result["mixnet_repr"] = to_builtin(
+                {
+                    "model_name": "mixnet_s",
+                    "scope": "baseline",
+                    "enabled": False,
+                    "target_block_count": all_residual["target_block_count"],
+                    "target_branch_count": all_residual["target_branch_count"],
+                    "target_filter_count": all_residual["target_filter_count"],
+                    "applied_blocks": all_residual["applied_blocks"],
+                    "completed_cycles": 0,
+                    "cycle_history": [],
+                    "current_mean_filter_redundancy": all_residual[
+                        "mean_filter_redundancy"
+                    ],
+                    "redundancy_by_scope": redundancy_by_scope,
+                }
+            )
     result['training_time_seconds'] = training_time_seconds
     result.update(compute_classification_details(confusion_matrix, class_names))
     image_size = int(getattr(trainer.config.data, 'image_size', 224) or 224)
@@ -1263,6 +1302,69 @@ def _glrf_config_columns(result: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _mixnet_repr_config_columns(result: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract the controlled RePr variables and mechanism measurements."""
+    config_path = result.get('config_path')
+    if not config_path:
+        return {}
+    model_config = load_yaml_mapping(Path(str(config_path)), 'RePr model config')
+    backbone = ((model_config.get('model') or {}).get('backbone') or {})
+    repr_config = backbone.get('repr') or {}
+    repr_summary = (result.get('metrics') or {}).get('mixnet_repr') or {}
+    history = repr_summary.get('cycle_history') or []
+    last_cycle = history[-1] if history else {}
+    redundancy_by_scope = repr_summary.get('redundancy_by_scope') or {}
+    is_repr = backbone.get('type') == 'mixnet_s_repr'
+    return {
+        'random_seed': model_config.get('random_seed'),
+        'repr_variant': model_config.get('repr_variant'),
+        'repr_enabled': is_repr,
+        'repr_scope': repr_config.get('scope') if is_repr else 'baseline',
+        'repr_prune_ratio': repr_config.get('prune_ratio') if is_repr else 0.0,
+        'repr_full_epochs': repr_config.get('full_epochs') if is_repr else None,
+        'repr_sparse_epochs': repr_config.get('sparse_epochs') if is_repr else None,
+        'repr_cycles': repr_config.get('cycles') if is_repr else 0,
+        'repr_per_layer_max_ratio': (
+            repr_config.get('per_layer_max_ratio') if is_repr else None
+        ),
+        'repr_reinit_scale': (
+            repr_config.get('reinit_scale') if is_repr else None
+        ),
+        'repr_target_block_count': repr_summary.get('target_block_count'),
+        'repr_target_branch_count': repr_summary.get('target_branch_count'),
+        'repr_target_filter_count': repr_summary.get('target_filter_count'),
+        'repr_completed_cycles': repr_summary.get('completed_cycles'),
+        'repr_mean_filter_redundancy': repr_summary.get(
+            'current_mean_filter_redundancy'
+        ),
+        'repr_last_pre_prune_redundancy': last_cycle.get(
+            'pre_prune_redundancy'
+        ),
+        'repr_last_post_reinit_redundancy': last_cycle.get(
+            'post_reinit_redundancy'
+        ),
+        'repr_mid_mean_filter_redundancy': (
+            (redundancy_by_scope.get('mid') or {}).get(
+                'mean_filter_redundancy'
+            )
+        ),
+        'repr_late_mean_filter_redundancy': (
+            (redundancy_by_scope.get('late') or {}).get(
+                'mean_filter_redundancy'
+            )
+        ),
+        'repr_all_mean_filter_redundancy': (
+            (redundancy_by_scope.get('all_residual') or {}).get(
+                'mean_filter_redundancy'
+            )
+        ),
+        'repr_applied_blocks': json.dumps(
+            list((repr_summary.get('applied_blocks') or {}).keys()),
+            ensure_ascii=False,
+        ),
+    }
+
+
 def _write_csv_rows(path: Path, rows: List[Dict[str, Any]]) -> None:
     '''以 UTF-8 BOM 保存表格，便于 Excel 直接打开中文字段。'''
     if not rows:
@@ -1343,6 +1445,11 @@ def write_ablation_csv_files(
         for result in results
         if 'mixnet_glrf/' in str(result.get('config_path', ''))
     ]
+    mixnet_repr_results = [
+        result
+        for result in results
+        if 'mixnet_repr/' in str(result.get('config_path', ''))
+    ]
     written_paths: List[Path] = []
     for filename, group_results, fold_name in (
         ('multiscale_ablation_summary.csv', multiscale_results, None),
@@ -1412,6 +1519,11 @@ def write_ablation_csv_files(
             mixnet_glrf_results,
             None,
         ),
+        (
+            'mixnet_repr_summary.csv',
+            mixnet_repr_results,
+            None,
+        ),
     ):
         rows = []
         for result in group_results:
@@ -1420,6 +1532,8 @@ def write_ablation_csv_files(
                 row.update(_mixnet_saa_config_columns(result))
             if filename == 'mixnet_glrf_summary.csv':
                 row.update(_glrf_config_columns(result))
+            if filename == 'mixnet_repr_summary.csv':
+                row.update(_mixnet_repr_config_columns(result))
             rows.append(row)
         if rows:
             path = runs_root / filename

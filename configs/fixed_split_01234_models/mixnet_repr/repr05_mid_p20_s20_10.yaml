@@ -1,0 +1,13 @@
+name: repr05_mid_p20_s20_10
+repr_variant: R05
+random_seed: 2026
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: mixnet_s_repr
+    model_name: mixnet_s
+    pretrained: true
+    input_size: 408
+    repr: {enabled: true, scope: mid, prune_ratio: 0.20, full_epochs: 20, sparse_epochs: 10, cycles: 3, per_layer_max_ratio: 0.40, reinit_scale: 0.10}
+  head: {type: linear, drop_rate: 0.0}

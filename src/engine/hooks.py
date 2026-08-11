@@ -500,6 +500,9 @@ class CheckpointHook:
     
     def on_epoch_end(self, trainer: Any, epoch: int, metrics: Dict[str, float]) -> None:
         """保存检查点"""
+        if not bool(metrics.get("checkpoint_eligible", True)):
+            return
+
         # 保存最佳模型
         if self.metric in metrics:
             value = metrics[self.metric]
@@ -568,6 +571,9 @@ class EarlyStoppingHook:
     
     def on_epoch_end(self, trainer: Any, epoch: int, metrics: Dict[str, float]) -> None:
         """检查是否应该早停"""
+        if not bool(metrics.get("early_stopping_eligible", True)):
+            return
+
         if self.metric not in metrics:
             return
         
