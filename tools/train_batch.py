@@ -21,20 +21,14 @@ import yaml
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-COMMON_CONFIG = Path('configs/fixed_split_patches_train.yaml')
+COMMON_CONFIG = Path('configs/fixed_split_01234_BaSic_grid30_408_train.yaml')
 CONFIG_LIST = (
-
-    # 可直接通过 timm 获取的 backbone：统一 224 输入、ImageNet-1K 预训练、hard-label CE。
-    # Path('configs/tryPractice/TimmBackbone224/convnextv2_tiny_ce.yaml'),
-    # Path('configs/tryPractice/TimmBackbone224/fasternet_t2_ce.yaml'),
-    # Path('configs/tryPractice/TimmBackbone224/inceptionnext_tiny_ce.yaml'),
-    # Path('configs/tryPractice/TimmBackbone224/repvit_m2_3_ce.yaml'),
-    # Path('configs/tryPractice/TimmBackbone224/mambaout_tiny_timm_ce.yaml'),
-    # Transformer / hybrid backbone：同样只保留可直接通过 timm 获取的模型。
-    # Path('configs/tryPractice/TransformerBackbone224/fastvit_sa24_256pre_224ft_ce.yaml'),
-    # Path('configs/tryPractice/TransformerBackbone224/efficientformerv2_s2_ce.yaml'),
-    # Path('configs/tryPractice/TransformerBackbone224/shvit_s3_ce.yaml'),
-    Path('configs/tryPractice/TransformerBackbone224/vim_small_midclstok_ce.yaml'),
+    # SAFNet 论文/源码对比队列。四项共享 01234 BaSiC grid30 408 公共配置，
+    # 因而使用完全相同的五分类数据划分、输入、优化器、轮数和测试流程。
+    Path('configs/fixed_split_01234_models/fixed_resnet50.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_mobilenet_v3_large.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_convnext_tiny.yaml'),
+    Path('configs/fixed_split_01234_models/fixed_safnet_scratch.yaml'),
 )
 
 # 在 PyCharm 中右键运行前，只需要编辑上面的 YAML 路径列表。
