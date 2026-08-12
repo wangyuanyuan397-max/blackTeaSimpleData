@@ -71,6 +71,9 @@ class CropExperimentConfig:
     device: str = "auto"
     use_pretrained: bool = True
     use_amp: bool = True
+    # 默认禁止在测试集上枚举融合组合，避免把测试集当成模型选择集。
+    # 旧结果复现时才临时设为 True；正式流程使用 select_fusion_on_validation.py。
+    evaluate_fusions: bool = False
 
     # 正式实验保持 None 和 False。调试时可设为 1 和 True，只检查前向流程。
     max_samples_per_class: int | None = None
@@ -301,7 +304,8 @@ def main() -> None:
     if args.dry_run:
         print("全部 dry-run 已通过。")
         return
-    summary.extend(evaluate_fusions(scale_results, output_dir))
+    if args.evaluate_fusions:
+        summary.extend(evaluate_fusions(scale_results, output_dir))
     write_csv(output_dir / "summary.csv", summary)
     write_json(output_dir / "summary.json", summary)
     print(f"结果已保存：{output_dir}")

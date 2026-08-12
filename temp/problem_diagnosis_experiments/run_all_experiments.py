@@ -1,7 +1,7 @@
 """PyCharm 一键运行全部任务诊断实验。
 
 运行顺序：
-1. Global/Local 尺度训练和融合；
+1. Global/Local 尺度训练（默认不在测试集枚举融合）；
 2. 对选定 checkpoint 做受控破坏；
 3. 汇总生成中文报告。
 

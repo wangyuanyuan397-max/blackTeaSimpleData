@@ -52,7 +52,7 @@ def markdown_table(headers: list[str], rows: list[list[str]]) -> str:
 
 
 def summarize_crop(rows: list[dict[str, str]]) -> tuple[list[str], dict]:
-    """分析单尺度最佳值和融合增益。"""
+    """分析单尺度结果；旧测试集枚举融合只标为探索性结果。"""
 
     lines = ["## 1. Crop 尺度与尺度互补", ""]
     if not rows:
@@ -110,16 +110,19 @@ def summarize_crop(rows: list[dict[str, str]]) -> tuple[list[str], dict]:
                 "fusion_gain": gain,
             }
         )
-        if gain >= 0.03:
-            judgment = "存在较强的多尺度互补信号"
-        elif gain >= 0.01:
-            judgment = "存在初步多尺度互补信号，建议增加随机种子复核"
+        if gain > 0:
+            judgment = "存在待复核的多尺度互补线索"
         else:
-            judgment = "尚无充分证据支持复杂多尺度结构"
+            judgment = "本次探索未观察到正向融合增益"
         lines.append(
-            f"最佳融合 `{best_fusion.get('condition')}` 相对最佳非融合条件变化 "
-            f"{gain * 100:+.2f} 个百分点：**{judgment}**。"
+            f"旧流程在测试集枚举得到的最佳融合 `{best_fusion.get('condition')}` "
+            f"相对最佳非融合条件变化 {gain * 100:+.2f} 个百分点：**{judgment}**。"
         )
+        lines.append(
+            "该组合由测试集反向选出，不能作为无偏性能估计；正式结论必须改用 "
+            "`select_fusion_on_validation.py` 的验证集冻结流程。"
+        )
+        diagnosis["fusion_selection_warning"] = "legacy_test_selected_exploratory_only"
         diagnosis["judgment"] = judgment
     return lines, diagnosis
 
