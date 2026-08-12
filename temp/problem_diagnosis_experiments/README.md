@@ -35,53 +35,70 @@ datasets_01234_original_split/
 
 正式结论优先使用 `parent_*`。否则 55 个高度相关 patch 会被误当成 55 个独立样本。
 
-## 0. 环境与帮助
+## 0. PyCharm 直接运行
 
-在项目根目录执行：
+所有入口都不读取命令行参数。每个脚本顶部都有带中文注释的配置区，路径根据脚本位置自动解析，因此 PyCharm 的 Working directory 设在哪里都可以。
 
-```powershell
-python temp/problem_diagnosis_experiments/run_crop_experiments.py --help
-python temp/problem_diagnosis_experiments/run_perturbation_experiments.py --help
-python temp/problem_diagnosis_experiments/summarize_diagnosis.py --help
-python temp/problem_diagnosis_experiments/test_diagnosis_common.py
+最简单的方法是打开 `run_all_experiments.py`，右键 **Run 'run_all_experiments'**。它会自动完成：
+
+```text
+尺度训练与融合 → 受控扰动 → 中文报告
 ```
 
-依赖复用项目现有 `requirements.txt`，无需安装额外包。
+总入口顶部的三个布尔开关可以跳过已经完成的阶段，`PERTURBATION_CROP_SIZE` 选择要诊断的尺度（默认 `204`，Global 可填 `"global"`）。详细训练参数仍在对应阶段脚本顶部配置。
+
+如果希望分阶段运行，推荐顺序：
+
+1. 打开 `run_crop_experiments.py`，修改顶部 `CropExperimentConfig`（通常默认值即可），右键 **Run 'run_crop_experiments'**；
+2. 训练完成后打开 `run_perturbation_experiments.py`，确认顶部 `checkpoint` 指向要诊断的权重，右键运行；
+3. 打开 `summarize_diagnosis.py`，右键运行生成中文报告。
+
+请在 PyCharm 中选择已安装项目依赖的解释器。依赖复用项目现有 `requirements.txt`，无需安装额外包。
 
 ## 1. 先做冒烟测试
 
-冒烟测试只读取每类 1 张图，并只跑前向，不下载预训练权重：
+在 `run_crop_experiments.py` 顶部临时修改：
 
-```powershell
-python temp/problem_diagnosis_experiments/run_crop_experiments.py `
-  --crop-sizes 408,204 `
-  --train-repeats 1 `
-  --val-views 1 `
-  --test-views 1 `
-  --batch-size 2 `
-  --eval-batch-size 2 `
-  --num-workers 0 `
-  --max-samples-per-class 1 `
-  --no-pretrained `
-  --dry-run
+```python
+crop_sizes = (408, 204)
+epochs = 1
+batch_size = 2
+eval_batch_size = 2
+num_workers = 0
+train_repeats = 1
+val_views = 1
+test_views = 1
+use_pretrained = False
+max_samples_per_class = 1
+dry_run = True
 ```
 
-默认还会检查 `global` 条件；如只想检查局部尺度，可加 `--skip-global`。
+右键运行即可。冒烟结束后，应把这些值恢复为正式配置，尤其是：
+
+```python
+use_pretrained = True
+max_samples_per_class = None
+dry_run = False
+```
 
 ## 2. 正式训练尺度诊断模型
 
-```powershell
-python temp/problem_diagnosis_experiments/run_crop_experiments.py `
-  --crop-sizes 408,306,204,102 `
-  --input-size 224 `
-  --epochs 150 `
-  --train-repeats 30 `
-  --val-views 5 `
-  --test-views 9 `
-  --batch-size 32 `
-  --eval-batch-size 16 `
-  --device auto
+`run_crop_experiments.py` 顶部已预置正式配置：
+
+```python
+crop_sizes = (408, 306, 204, 102)
+include_global = True
+input_size = 224
+epochs = 150
+train_repeats = 30
+val_views = 5
+test_views = 9
+batch_size = 32
+eval_batch_size = 16
+device = "auto"
 ```
+
+确认后直接右键运行该文件。
 
 说明：
 
@@ -99,16 +116,17 @@ python temp/problem_diagnosis_experiments/run_crop_experiments.py `
 
 ## 3. 受控破坏实验
 
-以某个尺度的最佳 checkpoint 为例：
+`run_perturbation_experiments.py` 顶部默认诊断 `crop_204/best.pth`：
 
-```powershell
-python temp/problem_diagnosis_experiments/run_perturbation_experiments.py `
-  --checkpoint temp/problem_diagnosis_experiments/results/crop_scale/crop_204/best.pth `
-  --split test `
-  --views 9 `
-  --repeats 3 `
-  --device auto
+```python
+checkpoint = EXPERIMENT_DIR / "results" / "crop_scale" / "crop_204" / "best.pth"
+split = "test"
+views = 9
+repeats = 3
+device = "auto"
 ```
+
+如需诊断 Global 或其他尺度，修改 `checkpoint` 一行，然后右键运行。脚本会从 checkpoint 自动读取 crop 大小、输入大小和模型信息。
 
 默认运行：
 
@@ -124,13 +142,11 @@ Texture shuffle macro 2×2, micro 4×4
 
 随机条件按重复编号分别保存，`summary.csv` 给出相对 Original 的原图准确率下降。
 
-建议先在 `--split val` 上确定扰动强度；测试集只做最后一次冻结评估，避免反复窥视测试结果。
+建议先把顶部 `split` 改成 `"val"` 确定扰动强度；测试集只做最后一次冻结评估，避免反复窥视测试结果。
 
 ## 4. 生成诊断报告
 
-```powershell
-python temp/problem_diagnosis_experiments/summarize_diagnosis.py
-```
+直接右键运行 `summarize_diagnosis.py`。
 
 生成：
 

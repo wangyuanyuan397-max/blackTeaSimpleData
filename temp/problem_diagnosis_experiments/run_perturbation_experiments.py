@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import argparse
 import math
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -21,7 +21,6 @@ from diagnosis_common import (  # noqa: E402
     load_checkpoint,
     make_loader,
     metrics_row,
-    parse_float_list,
     resolve_device,
     set_random_seed,
     write_csv,
@@ -29,16 +28,59 @@ from diagnosis_common import (  # noqa: E402
 )
 
 
+# =============================================================================
+# PyCharm 右键运行配置区
+# 先运行 run_crop_experiments.py 生成权重，再右键运行本文件。
+# 本脚本不再读取任何命令行参数。
+# =============================================================================
+@dataclass(frozen=True)
+class PerturbationExperimentConfig:
+    """受控破坏实验的全部运行参数。"""
+
+    # 默认诊断 crop=204 的权重；如要诊断其他尺度，只修改这一行。
+    checkpoint: Path = EXPERIMENT_DIR / "results" / "crop_scale" / "crop_204" / "best.pth"
+    dataset_root: Path = PROJECT_ROOT / "datasets_01234_original_split"
+    output_dir: Path = EXPERIMENT_DIR / "results" / "perturbation"
+    split: str = "test"
+
+    # 本工具生成的 checkpoint 会自动记录这些信息，通常无需手动填写。
+    model_name: str | None = None
+    num_classes: int | None = None
+    crop_size: int | None = None
+    input_size: int | None = None
+    full_image: bool = False
+
+    views: int = 9
+    batch_size: int = 16
+    num_workers: int = 4
+    occlusion_ratios: tuple[float, ...] = (0.1, 0.2, 0.3, 0.4, 0.5)
+    blur_radii: tuple[float, ...] = (1.5, 3.0)
+    color_jitter: float = 0.3
+    patch_grid: int = 3
+    texture_macro_grid: int = 2
+    texture_micro_grid: int = 4
+    repeats: int = 3
+    seed: int = 2026
+    device: str = "auto"
+
+    # 正式实验保持 None 和 False；调试时可设为 1 和 True。
+    max_samples_per_class: int | None = None
+    dry_run: bool = False
+
+
+CONFIG = PerturbationExperimentConfig()
+
+
 def build_conditions(args) -> list[PerturbationSpec]:
     """创建诊断条件；随机条件用多个重复估计均值和波动。"""
 
     conditions = [PerturbationSpec("original")]
     conditions.append(PerturbationSpec("grayscale"))
-    conditions.extend(PerturbationSpec("blur", radius) for radius in parse_float_list(args.blur_radii))
+    conditions.extend(PerturbationSpec("blur", radius) for radius in args.blur_radii)
     for repeat in range(args.repeats):
         conditions.extend(
             PerturbationSpec("occlusion", ratio, repeat=repeat)
-            for ratio in parse_float_list(args.occlusion_ratios)
+            for ratio in args.occlusion_ratios
         )
         conditions.append(PerturbationSpec("color_jitter", args.color_jitter, repeat=repeat))
         conditions.append(PerturbationSpec("patch_shuffle", grid=args.patch_grid, repeat=repeat))
@@ -71,48 +113,16 @@ def condition_name(spec: PerturbationSpec) -> str:
     return f"{base}_repeat{spec.repeat + 1}" if randomized else base
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="checkpoint 受控破坏诊断实验。")
-    parser.add_argument("--checkpoint", type=Path, required=True)
-    parser.add_argument("--model-name", default=None, help="旧 checkpoint 无元数据时填写。")
-    parser.add_argument("--num-classes", type=int, default=None)
-    parser.add_argument(
-        "--dataset-root",
-        type=Path,
-        default=PROJECT_ROOT / "datasets_01234_original_split",
-    )
-    parser.add_argument("--split", choices=("val", "test"), default="test")
-    parser.add_argument("--crop-size", type=int, default=None, help="默认读取 checkpoint 元数据。")
-    parser.add_argument("--input-size", type=int, default=None, help="默认读取 checkpoint 元数据。")
-    parser.add_argument(
-        "--full-image",
-        action="store_true",
-        help="按整张原图评估；Global checkpoint 会从元数据自动识别。",
-    )
-    parser.add_argument("--views", type=int, default=9)
-    parser.add_argument("--batch-size", type=int, default=16)
-    parser.add_argument("--num-workers", type=int, default=4)
-    parser.add_argument("--occlusion-ratios", default="0.1,0.2,0.3,0.4,0.5")
-    parser.add_argument("--blur-radii", default="1.5,3.0")
-    parser.add_argument("--color-jitter", type=float, default=0.3)
-    parser.add_argument("--patch-grid", type=int, default=3)
-    parser.add_argument("--texture-macro-grid", type=int, default=2)
-    parser.add_argument("--texture-micro-grid", type=int, default=4)
-    parser.add_argument("--repeats", type=int, default=3)
-    parser.add_argument("--seed", type=int, default=2026)
-    parser.add_argument("--device", default="auto")
-    parser.add_argument("--max-samples-per-class", type=int, default=None)
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=EXPERIMENT_DIR / "results" / "perturbation",
-    )
-    parser.add_argument("--dry-run", action="store_true", help="只运行 original 条件。")
-    return parser
-
-
 def main() -> None:
-    args = build_parser().parse_args()
+    args = CONFIG
+    if args.split not in {"val", "test"}:
+        raise ValueError(f"CONFIG.split 只能是 'val' 或 'test'，当前为：{args.split!r}")
+    if not args.checkpoint.is_file():
+        raise FileNotFoundError(
+            "没有找到待诊断权重：\n"
+            f"{args.checkpoint}\n"
+            "请先右键运行 run_crop_experiments.py，或修改本文件顶部 CONFIG.checkpoint。"
+        )
     set_random_seed(args.seed)
     device = resolve_device(args.device)
     model, metadata = load_checkpoint(

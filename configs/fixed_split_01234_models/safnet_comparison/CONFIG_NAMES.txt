@@ -1,0 +1,4 @@
+paper_resnet50
+paper_mobilenet_v3_large
+paper_convnext_tiny
+paper_safnet_scratch

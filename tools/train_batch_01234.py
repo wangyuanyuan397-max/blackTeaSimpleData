@@ -1,8 +1,8 @@
 """Batch runner for the 01234 five-class experiments.
 
 This wrapper reuses tools/train_batch.py while pinning the 01234 BaSiC grid30
-408 common config. Ortho-Shot remains the default; --repr-diagnostic selects
-the isolated six-run final RePr diagnostic queue.
+408 common config. Ortho-Shot remains the default; wrapper flags select the
+isolated RePr diagnostic or SAFNet paper/source comparison queues.
 """
 
 import importlib.util
@@ -62,6 +62,12 @@ def _consume_orthoshot_phase(argv: list[str]) -> str:
 
 
 REPR_DIAGNOSTIC = "--repr-diagnostic" in sys.argv
+SAFNET_COMPARISON = "--safnet-comparison" in sys.argv
+if REPR_DIAGNOSTIC and SAFNET_COMPARISON:
+    raise SystemExit(
+        "--repr-diagnostic and --safnet-comparison cannot be used together."
+    )
+
 if REPR_DIAGNOSTIC:
     sys.argv.remove("--repr-diagnostic")
     if any(argument.startswith("--orthoshot-phase") for argument in sys.argv):
@@ -71,6 +77,15 @@ if REPR_DIAGNOSTIC:
     ORTHOSHOT_PHASE = None
     CONFIG_DIR = Path("configs/fixed_split_01234_models/mixnet_repr")
     EXPECTED_CONFIG_COUNT = 6
+elif SAFNET_COMPARISON:
+    sys.argv.remove("--safnet-comparison")
+    if any(argument.startswith("--orthoshot-phase") for argument in sys.argv):
+        raise SystemExit(
+            "--safnet-comparison and --orthoshot-phase cannot be used together."
+        )
+    ORTHOSHOT_PHASE = None
+    CONFIG_DIR = Path("configs/fixed_split_01234_models/safnet_comparison")
+    EXPECTED_CONFIG_COUNT = 4
 else:
     ORTHOSHOT_PHASE = _consume_orthoshot_phase(sys.argv)
     CONFIG_DIR = Path(

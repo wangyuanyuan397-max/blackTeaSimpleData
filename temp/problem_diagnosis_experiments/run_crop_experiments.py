@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import argparse
 import itertools
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -28,13 +28,56 @@ from diagnosis_common import (  # noqa: E402
     load_checkpoint,
     make_loader,
     metrics_row,
-    parse_int_list,
     resolve_device,
     set_random_seed,
     train_model,
     write_csv,
     write_json,
 )
+
+
+# =============================================================================
+# PyCharm 右键运行配置区
+# 只需要修改这里的值，然后右键本文件 -> Run 'run_crop_experiments'。
+# 本脚本不再读取任何命令行参数。
+# =============================================================================
+@dataclass(frozen=True)
+class CropExperimentConfig:
+    """Global/Local 尺度诊断的全部运行参数。"""
+
+    # 数据与结果目录均根据本文件位置解析，不依赖 PyCharm 的 Working directory。
+    dataset_root: Path = PROJECT_ROOT / "datasets_01234_original_split"
+    output_dir: Path = EXPERIMENT_DIR / "results" / "crop_scale"
+
+    # 默认运行真正的整图 Global，以及四种局部物理视野。
+    crop_sizes: tuple[int, ...] = (408, 306, 204, 102)
+    include_global: bool = True
+    input_size: int = 224
+    model_name: str = "mixnet_s"
+
+    # 正式训练参数。
+    epochs: int = 150
+    batch_size: int = 32
+    eval_batch_size: int = 16
+    num_workers: int = 4
+    train_repeats: int = 30
+    val_views: int = 5
+    test_views: int = 9
+    learning_rate: float = 1e-4
+    weight_decay: float = 5e-4
+    patience: int = 30
+    label_smoothing: float = 0.0
+    seed: int = 2026
+    device: str = "auto"
+    use_pretrained: bool = True
+    use_amp: bool = True
+
+    # 正式实验保持 None 和 False。调试时可设为 1 和 True，只检查前向流程。
+    max_samples_per_class: int | None = None
+    dry_run: bool = False
+
+
+CONFIG = CropExperimentConfig()
 
 
 def build_dataset(args, split: str, condition: str | int, training: bool, views: int):
@@ -123,51 +166,12 @@ def evaluate_fusions(scale_results: dict, output_dir: Path) -> list[dict]:
     return summary
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="物理 crop 尺度诊断实验。")
-    parser.add_argument(
-        "--dataset-root",
-        type=Path,
-        default=PROJECT_ROOT / "datasets_01234_original_split",
-        help="默认用固定原图划分；不能随机拆分同一原图产生的 patch。",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=EXPERIMENT_DIR / "results" / "crop_scale",
-    )
-    parser.add_argument("--crop-sizes", default="408,306,204,102")
-    parser.add_argument(
-        "--skip-global",
-        action="store_true",
-        help="不训练整图 resize 的 Global 条件；默认会训练。",
-    )
-    parser.add_argument("--input-size", type=int, default=224)
-    parser.add_argument("--model-name", default="mixnet_s")
-    parser.add_argument("--epochs", type=int, default=150)
-    parser.add_argument("--batch-size", type=int, default=32)
-    parser.add_argument("--eval-batch-size", type=int, default=16)
-    parser.add_argument("--num-workers", type=int, default=4)
-    parser.add_argument("--train-repeats", type=int, default=30)
-    parser.add_argument("--val-views", type=int, default=5)
-    parser.add_argument("--test-views", type=int, default=9)
-    parser.add_argument("--learning-rate", type=float, default=1e-4)
-    parser.add_argument("--weight-decay", type=float, default=5e-4)
-    parser.add_argument("--patience", type=int, default=30)
-    parser.add_argument("--label-smoothing", type=float, default=0.0)
-    parser.add_argument("--seed", type=int, default=2026)
-    parser.add_argument("--device", default="auto")
-    parser.add_argument("--no-pretrained", action="store_true")
-    parser.add_argument("--no-amp", action="store_true")
-    parser.add_argument("--max-samples-per-class", type=int, default=None)
-    parser.add_argument("--dry-run", action="store_true", help="仅验证一个 batch，不训练。")
-    return parser
-
-
 def main() -> None:
-    args = build_parser().parse_args()
-    crop_sizes = parse_int_list(args.crop_sizes)
-    conditions: list[str | int] = ([] if args.skip_global else ["global"]) + crop_sizes
+    args = CONFIG
+    crop_sizes = list(args.crop_sizes)
+    if not crop_sizes or any(size <= 0 for size in crop_sizes):
+        raise ValueError(f"CONFIG.crop_sizes 必须包含正整数，当前为：{args.crop_sizes}")
+    conditions: list[str | int] = (["global"] if args.include_global else []) + crop_sizes
     device = resolve_device(args.device)
     output_dir = args.output_dir.expanduser().resolve()
     write_json(
@@ -216,7 +220,7 @@ def main() -> None:
             False,
             args.seed,
         )
-        model = create_model(args.model_name, len(DEFAULT_CLASSES), not args.no_pretrained)
+        model = create_model(args.model_name, len(DEFAULT_CLASSES), args.use_pretrained)
         if args.dry_run:
             images, labels, _ = next(iter(train_loader))
             with torch.inference_mode():
@@ -252,7 +256,7 @@ def main() -> None:
                 args.weight_decay,
                 args.patience,
                 args.label_smoothing,
-                not args.no_amp,
+                args.use_amp,
             ),
             metadata,
         )

@@ -1,0 +1,13 @@
+# SAFNet jointly defined by the supplied SCAM_ResNet.py and safnet.py.
+name: paper_safnet_scratch
+model:
+  type: classifier
+  strategy: classification
+  backbone:
+    type: safnet
+    pretrained: false
+    num_classes: 5
+    reduction: 16
+  head:
+    type: identity
+    drop_rate: 0.0

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import csv
 import json
 from collections import defaultdict
@@ -11,6 +10,15 @@ from statistics import mean, pstdev
 
 
 EXPERIMENT_DIR = Path(__file__).resolve().parent
+
+
+# =============================================================================
+# PyCharm 右键运行配置区
+# 默认读取前两个脚本的标准输出目录，无需任何命令行参数。
+# =============================================================================
+CROP_SUMMARY = EXPERIMENT_DIR / "results" / "crop_scale" / "summary.csv"
+PERTURBATION_SUMMARY = EXPERIMENT_DIR / "results" / "perturbation" / "summary.csv"
+REPORT_OUTPUT = EXPERIMENT_DIR / "results" / "DIAGNOSIS_REPORT.md"
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:
@@ -169,26 +177,9 @@ def summarize_perturbation(rows: list[dict[str, str]]) -> tuple[list[str], dict]
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="生成任务诊断中文报告。")
-    parser.add_argument(
-        "--crop-summary",
-        type=Path,
-        default=EXPERIMENT_DIR / "results" / "crop_scale" / "summary.csv",
-    )
-    parser.add_argument(
-        "--perturbation-summary",
-        type=Path,
-        default=EXPERIMENT_DIR / "results" / "perturbation" / "summary.csv",
-    )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=EXPERIMENT_DIR / "results" / "DIAGNOSIS_REPORT.md",
-    )
-    args = parser.parse_args()
-    crop_lines, crop_diagnosis = summarize_crop(read_csv(args.crop_summary))
+    crop_lines, crop_diagnosis = summarize_crop(read_csv(CROP_SUMMARY))
     perturbation_lines, perturbation_diagnosis = summarize_perturbation(
-        read_csv(args.perturbation_summary)
+        read_csv(PERTURBATION_SUMMARY)
     )
     report = [
         "# 红茶五分类任务诊断报告",
@@ -207,9 +198,9 @@ def main() -> None:
         "- 正式比较建议补 3 个随机种子，并报告均值、标准差和配对原图结果。",
         "",
     ]
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text("\n".join(report), encoding="utf-8")
-    diagnosis_json = args.output.with_suffix(".json")
+    REPORT_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+    REPORT_OUTPUT.write_text("\n".join(report), encoding="utf-8")
+    diagnosis_json = REPORT_OUTPUT.with_suffix(".json")
     diagnosis_json.write_text(
         json.dumps(
             {"crop": crop_diagnosis, "perturbation": perturbation_diagnosis},
@@ -218,7 +209,7 @@ def main() -> None:
         ),
         encoding="utf-8",
     )
-    print(f"报告已生成：{args.output}")
+    print(f"报告已生成：{REPORT_OUTPUT}")
 
 
 if __name__ == "__main__":
