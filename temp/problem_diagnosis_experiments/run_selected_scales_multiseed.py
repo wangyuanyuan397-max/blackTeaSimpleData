@@ -41,7 +41,9 @@ class MultiSeedConfig:
     model_name: str = "mixnet_s"
     epochs: int = 150
     batch_size: int = 32
-    eval_batch_size: int = 16
+    # 9视图评估时实际前向图像数约为 eval_batch_size×9；4 可适配当前 8GB 显存。
+    # 评估 batch 大小不改变权重和逐图聚合定义，因此可与归档 seed 直接比较。
+    eval_batch_size: int = 4
     num_workers: int = 4
     train_repeats: int = 30
     val_views: int = 5
@@ -54,8 +56,20 @@ class MultiSeedConfig:
     use_pretrained: bool = True
     use_amp: bool = True
 
-    # True 时，已有完整 summary.csv 的种子不会重复训练。
-    # 当前断点粒度是“完整种子”；单个种子未跑完时会从该种子的第一个尺度重跑。
+    # 2026 已经按完全相同训练设置正式跑完，直接复用归档结果，避免重复耗时训练。
+    # 如果归档文件不存在，脚本会自动退回到本地重新训练该 seed。
+    archived_seed_summaries: tuple[tuple[int, Path], ...] = (
+        (
+            2026,
+            Path(
+                r"E:\docs\服务器跑模型结果备份\data01234\grid裁剪30+basic处理的模型结果"
+                r"\problem_diagnosis_experiments\results\crop_scale\summary.csv"
+            ),
+        ),
+    )
+
+    # True 时，已有完整 summary.csv 的种子/尺度不会重复训练。
+    # 当前断点粒度是“单个 seed × 单个尺度”，中断后最多重跑一个尺度。
     skip_completed_seeds: bool = True
 
     # 仅供流程测试；正式实验必须保持 None 和 False。
@@ -89,18 +103,52 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         writer.writerows(rows)
 
 
+def expected_conditions(scales: tuple[int, ...], test_views: int) -> set[str]:
+    """返回本轮正式复现必须具备的结果条件。"""
+
+    return {
+        condition
+        for scale in scales
+        for condition in (f"crop_{scale}_single", f"crop_{scale}_multi{test_views}")
+    }
+
+
 def seed_complete(summary_path: Path, scales: tuple[int, ...], test_views: int) -> bool:
     """检查一个种子的所有目标条件是否已经完整落盘。"""
 
     if not summary_path.is_file():
         return False
     conditions = {row["condition"] for row in read_csv(summary_path)}
-    expected = {
-        condition
-        for scale in scales
-        for condition in (f"crop_{scale}_single", f"crop_{scale}_multi{test_views}")
-    }
+    expected = expected_conditions(scales, test_views)
     return expected.issubset(conditions)
+
+
+def scale_complete(summary_path: Path, scale: int, test_views: int) -> bool:
+    """检查单个 seed×尺度是否已经完整产生 single/multi-view 两行结果。"""
+
+    return seed_complete(summary_path, (scale,), test_views)
+
+
+def collect_seed_summary(config: MultiSeedConfig, seed: int) -> Path:
+    """把三个尺度的独立结果合并为该 seed 的 summary，便于统一汇总。"""
+
+    seed_dir = config.output_dir / f"seed_{seed}"
+    combined_rows: list[dict[str, Any]] = []
+    for scale in config.scales:
+        scale_summary = seed_dir / f"scale_{scale}" / "summary.csv"
+        if not scale_complete(scale_summary, scale, config.test_views):
+            raise RuntimeError(f"seed={seed}, scale={scale} 的结果不完整：{scale_summary}")
+        allowed = expected_conditions((scale,), config.test_views)
+        combined_rows.extend(
+            row for row in read_csv(scale_summary) if row["condition"] in allowed
+        )
+    summary_path = seed_dir / "summary.csv"
+    write_csv(summary_path, combined_rows)
+    (seed_dir / "summary.json").write_text(
+        json.dumps(combined_rows, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return summary_path
 
 
 def train_seed(config: MultiSeedConfig, seed: int) -> Path:
@@ -116,39 +164,55 @@ def train_seed(config: MultiSeedConfig, seed: int) -> Path:
         print(f"种子 {seed} 已完整完成，跳过训练。")
         return summary_path
 
-    run_crop_experiments.CONFIG = run_crop_experiments.CropExperimentConfig(
-        dataset_root=config.dataset_root,
-        output_dir=seed_dir,
-        crop_sizes=config.scales,
-        include_global=False,
-        input_size=config.input_size,
-        model_name=config.model_name,
-        epochs=config.epochs,
-        batch_size=config.batch_size,
-        eval_batch_size=config.eval_batch_size,
-        num_workers=config.num_workers,
-        train_repeats=config.train_repeats,
-        val_views=config.val_views,
-        test_views=config.test_views,
-        learning_rate=config.learning_rate,
-        weight_decay=config.weight_decay,
-        patience=config.patience,
-        label_smoothing=config.label_smoothing,
-        seed=seed,
-        device=config.device,
-        use_pretrained=config.use_pretrained,
-        use_amp=config.use_amp,
-        evaluate_fusions=False,
-        max_samples_per_class=config.max_samples_per_class,
-        dry_run=config.dry_run,
-    )
-    run_crop_experiments.main()
-    return summary_path
+    for scale in config.scales:
+        scale_dir = seed_dir / f"scale_{scale}"
+        scale_summary = scale_dir / "summary.csv"
+        if config.skip_completed_seeds and scale_complete(
+            scale_summary,
+            scale,
+            config.test_views,
+        ):
+            print(f"种子 {seed}、尺度 {scale} 已完成，跳过。")
+            continue
+
+        # 每个尺度单独落盘，使长任务中断后只需重跑未完成的尺度。
+        run_crop_experiments.CONFIG = run_crop_experiments.CropExperimentConfig(
+            dataset_root=config.dataset_root,
+            output_dir=scale_dir,
+            crop_sizes=(scale,),
+            include_global=False,
+            input_size=config.input_size,
+            model_name=config.model_name,
+            epochs=config.epochs,
+            batch_size=config.batch_size,
+            eval_batch_size=config.eval_batch_size,
+            num_workers=config.num_workers,
+            train_repeats=config.train_repeats,
+            val_views=config.val_views,
+            test_views=config.test_views,
+            learning_rate=config.learning_rate,
+            weight_decay=config.weight_decay,
+            patience=config.patience,
+            label_smoothing=config.label_smoothing,
+            seed=seed,
+            device=config.device,
+            use_pretrained=config.use_pretrained,
+            use_amp=config.use_amp,
+            evaluate_fusions=False,
+            max_samples_per_class=config.max_samples_per_class,
+            dry_run=config.dry_run,
+        )
+        run_crop_experiments.main()
+
+    if config.dry_run:
+        return summary_path
+    return collect_seed_summary(config, seed)
 
 
 def aggregate(config: MultiSeedConfig, summary_paths: dict[int, Path]) -> None:
     """汇总逐种子结果，并计算均值、样本标准差和最小/最大值。"""
 
+    allowed_conditions = expected_conditions(config.scales, config.test_views)
     raw_rows: list[dict[str, Any]] = []
     for seed, path in summary_paths.items():
         if not path.is_file():
@@ -156,9 +220,9 @@ def aggregate(config: MultiSeedConfig, summary_paths: dict[int, Path]) -> None:
                 continue
             raise FileNotFoundError(f"种子 {seed} 缺少汇总：{path}")
         for row in read_csv(path):
-            if row["condition"].startswith("fusion_"):
+            if row["condition"] not in allowed_conditions:
                 continue
-            raw_rows.append({"seed": seed, **row})
+            raw_rows.append({"seed": seed, "summary_source": str(path), **row})
     write_csv(config.output_dir / "per_seed_results.csv", raw_rows)
 
     metric_names = (
@@ -169,9 +233,16 @@ def aggregate(config: MultiSeedConfig, summary_paths: dict[int, Path]) -> None:
         "parent_nll",
     )
     conditions = sorted({row["condition"] for row in raw_rows})
+    if set(conditions) != allowed_conditions:
+        missing = sorted(allowed_conditions - set(conditions))
+        raise RuntimeError(f"多seed汇总缺少条件：{missing}")
     aggregate_rows: list[dict[str, Any]] = []
     for condition in conditions:
         subset = [row for row in raw_rows if row["condition"] == condition]
+        if len(subset) != len(config.seeds):
+            raise RuntimeError(
+                f"{condition} 只有 {len(subset)} 个seed，预期 {len(config.seeds)} 个。"
+            )
         record: dict[str, Any] = {
             "condition": condition,
             "seed_count": len(subset),
@@ -195,6 +266,7 @@ def aggregate(config: MultiSeedConfig, summary_paths: dict[int, Path]) -> None:
         "",
         f"- 尺度：{', '.join(map(str, config.scales))}",
         f"- 种子：{', '.join(map(str, config.seeds))}",
+        "- seed 2026 复用完全相同设置的既有正式结果；seed 3407、42 在本目录新训练。",
         "- 测试集不搜索融合组合；仅报告冻结的单尺度 single/multi-view 结果。",
         "",
         "| 条件 | Seed 数 | Acc 均值±SD | Macro-F1 均值±SD | MAE 均值±SD | QWK 均值±SD |",
@@ -211,6 +283,7 @@ def aggregate(config: MultiSeedConfig, summary_paths: dict[int, Path]) -> None:
         [
             "",
             "> 测试集仅 25 张原图；多种子主要衡量训练随机性，不能替代增加独立样本。",
+            "> 评估 batch_size=4 仅为适配显存，不改变 checkpoint、视图数量或原图级聚合定义。",
             "",
         ]
     )
@@ -227,19 +300,35 @@ def main() -> None:
     if len(set(config.seeds)) != len(config.seeds) or not config.seeds:
         raise ValueError("CONFIG.seeds 必须非空且不能重复。")
     config.output_dir.mkdir(parents=True, exist_ok=True)
+    config_payload = {
+        **vars(config),
+        "archived_seed_summaries": [
+            {"seed": seed, "summary_path": str(path)}
+            for seed, path in config.archived_seed_summaries
+        ],
+        "evaluate_test_fusions": False,
+        "resume_granularity": "seed_x_scale",
+    }
     (config.output_dir / "multiseed_config.json").write_text(
         json.dumps(
-            {
-                **vars(config),
-                "evaluate_test_fusions": False,
-            },
+            config_payload,
             ensure_ascii=False,
             indent=2,
             default=str,
         ),
         encoding="utf-8",
     )
-    summary_paths = {seed: train_seed(config, seed) for seed in config.seeds}
+    archived = {
+        seed: path
+        for seed, path in config.archived_seed_summaries
+        if seed in config.seeds and seed_complete(path, config.scales, config.test_views)
+    }
+    for seed, path in archived.items():
+        print(f"种子 {seed} 复用既有正式结果：{path}")
+    summary_paths = {
+        seed: archived[seed] if seed in archived else train_seed(config, seed)
+        for seed in config.seeds
+    }
     if not config.dry_run:
         aggregate(config, summary_paths)
         print(f"多种子复现完成：{config.output_dir / 'MULTISEED_REPORT.md'}")
