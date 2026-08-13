@@ -9,6 +9,7 @@ from audit_source_groups import add_bh_q_values, fisher_two_sided, parse_source_
 from select_fusion_on_validation import candidate_key, paired_correctness_comparison
 from run_color_component_experiments import (
     ColorComponentConfig,
+    add_bh_q_values as add_color_bh_q_values,
     build_conditions as build_color_conditions,
     conditions_for_split as color_conditions_for_split,
     condition_name as color_condition_name,
@@ -111,6 +112,21 @@ class DiagnosticClosureTests(unittest.TestCase):
             [(condition.name, condition.value) for condition in conditions],
             [("original", 0.0), ("brightness", 0.70), ("hue", -0.06)],
         )
+
+    def test_color_bh_correction_excludes_original(self) -> None:
+        """颜色多重校正只应以实际扰动条件为检验家族。"""
+
+        rows = [
+            {"perturbation": "original", "paired_mcnemar_exact_p": 1.0},
+            {"perturbation": "hue", "paired_mcnemar_exact_p": 0.01},
+            {"perturbation": "brightness", "paired_mcnemar_exact_p": 0.04},
+            {"perturbation": "contrast", "paired_mcnemar_exact_p": 0.03},
+        ]
+        add_color_bh_q_values(rows)
+        self.assertEqual(rows[0]["paired_mcnemar_bh_q"], 1.0)
+        expected = [0.03, 0.04, 0.04]
+        for row, value in zip(rows[1:], expected):
+            self.assertAlmostEqual(row["paired_mcnemar_bh_q"], value)
 
 
 if __name__ == "__main__":

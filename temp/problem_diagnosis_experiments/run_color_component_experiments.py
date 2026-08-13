@@ -211,6 +211,29 @@ def exact_mcnemar(baseline: dict[str, bool], current: dict[str, bool]) -> dict[s
     }
 
 
+def add_bh_q_values(rows: list[dict[str, Any]]) -> None:
+    """对非 Original 条件的 McNemar p 值统一做 BH-FDR 校正。"""
+
+    tested = [row for row in rows if row["perturbation"] != "original"]
+    if not tested:
+        return
+    ranked = sorted(tested, key=lambda row: float(row["paired_mcnemar_exact_p"]))
+    count = len(ranked)
+    running_minimum = 1.0
+    for rank_index in range(count - 1, -1, -1):
+        row = ranked[rank_index]
+        rank = rank_index + 1
+        adjusted = min(
+            1.0,
+            float(row["paired_mcnemar_exact_p"]) * count / rank,
+        )
+        running_minimum = min(running_minimum, adjusted)
+        row["paired_mcnemar_bh_q"] = running_minimum
+    for row in rows:
+        if row["perturbation"] == "original":
+            row["paired_mcnemar_bh_q"] = 1.0
+
+
 def build_report(
     config: ColorComponentConfig,
     rows: list[dict[str, Any]],
@@ -227,15 +250,15 @@ def build_report(
         f"- 原始 NLL：{baseline['parent_nll']:.4f}",
         "- 每个条件只改变一种颜色属性；白平衡实验对整图平均亮度进行了近似保持。",
         "",
-        "| 条件 | 参数 | Accuracy | ΔAccuracy | NLL | ΔNLL | QWK | 丢失/新增答对 | McNemar p |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| 条件 | 参数 | Accuracy | ΔAccuracy | NLL | ΔNLL | QWK | 丢失/新增答对 | p | BH q |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in rows:
         lines.append(
             "| {condition} | {value:+.2f} | {parent_accuracy:.2%} | "
             "{parent_accuracy_drop:+.2%} | {parent_nll:.4f} | {parent_nll_increase:+.4f} | "
             "{parent_qwk:.4f} | {paired_lost_correct}/{paired_gained_correct} | "
-            "{paired_mcnemar_exact_p:.4f} |".format(**row)
+            "{paired_mcnemar_exact_p:.4f} | {paired_mcnemar_bh_q:.4f} |".format(**row)
         )
 
     component_labels = {
@@ -254,14 +277,29 @@ def build_report(
             f"最大受影响条件为 `{worst['condition']}`；该条件 NLL 变化 "
             f"{worst['parent_nll_increase']:+.4f}。"
         )
+    hue_rows = {
+        row["condition"]: row
+        for row in rows
+        if row["perturbation"] == "hue"
+    }
+    if "hue_shift_m0p03" in hue_rows and "hue_shift_p0p03" in hue_rows:
+        lines.extend(
+            [
+                "",
+                "色相 ±0.03 均降至 20% 准确率，但两个方向可能导致不同的标签端点塌缩；"
+                "具体预测分布请结合各条件 `metrics.json` 的 confusion matrix 判读。",
+            ]
+        )
     lines.extend(
         [
             "",
             "## 判读边界",
             "",
             "- 当前默认 val 只有 20 张原图，Accuracy 每张对应 5 个百分点；同时查看 NLL 和剂量趋势。",
+            "- 表中对20个非原始条件的配对 McNemar p 值统一做了 BH-FDR 校正；q<0.05 仍只代表验证集算子敏感性。",
             "- 一个方向单次掉点不能证明模型依赖该属性；更可信的是正负方向或强度增加时出现一致趋势。",
             "- 对比度、饱和度与色温在图像统计上不可能完全正交，本实验表示算子级单因素控制，而非生理机制分离。",
+            "- 色相/色温变换可能把图像推到训练分布之外；大幅掉点首先证明模型对该算子不鲁棒，不能单独证明自然条件下的因果依赖。",
             "- 先在 val 固定最终强度和判读规则；不要根据 test 结果继续调强度。",
             "",
             f"逐条件指标和预测保存在：`{output_dir}`",
@@ -371,6 +409,7 @@ def main() -> None:
         write_csv(condition_dir / "sample_predictions.csv", result["sample_predictions"])
         write_csv(condition_dir / "parent_predictions.csv", result["parent_predictions"])
 
+    add_bh_q_values(rows)
     write_csv(output_dir / "summary.csv", rows)
     write_json(output_dir / "summary.json", rows)
     report = build_report(config, rows, output_dir)
