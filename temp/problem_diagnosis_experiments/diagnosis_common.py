@@ -183,6 +183,35 @@ def texture_shuffle(
     return result
 
 
+def adjust_white_balance_temperature(
+    image: Image.Image,
+    strength: float,
+) -> Image.Image:
+    """模拟冷暖白平衡偏移，并尽量保持整图平均亮度不变。
+
+    ``strength > 0`` 表示偏暖（红通道增强、蓝通道减弱），负值表示偏冷。
+    这里改变的是综合色调，而不是直接叠加亮度；全局亮度归一化可减少亮度混杂。
+    """
+
+    if not -0.5 <= strength <= 0.5:
+        raise ValueError(f"色温强度必须在 [-0.5, 0.5]，实际为：{strength}")
+    array = np.asarray(image.convert("RGB"), dtype=np.float32) / 255.0
+    luminance_weights = np.asarray([0.2126, 0.7152, 0.0722], dtype=np.float32)
+    original_mean_luminance = float((array * luminance_weights).sum(axis=2).mean())
+
+    # 指数增益保证正负色温变化互为近似逆变换：暖色增强 R、抑制 B；冷色相反。
+    gains = np.asarray(
+        [math.exp(strength), 1.0, math.exp(-strength)],
+        dtype=np.float32,
+    )
+    changed = array * gains
+    changed_mean_luminance = float((changed * luminance_weights).sum(axis=2).mean())
+    if changed_mean_luminance > 1e-8:
+        changed *= original_mean_luminance / changed_mean_luminance
+    changed = np.clip(np.rint(changed * 255.0), 0, 255).astype(np.uint8)
+    return Image.fromarray(changed, mode="RGB")
+
+
 @dataclass(frozen=True)
 class PerturbationSpec:
     """一个受控破坏条件。"""
@@ -221,6 +250,24 @@ def apply_perturbation(
         changed = TF.adjust_saturation(changed, rng.uniform(1 - strength, 1 + strength))
         hue = min(0.1, strength / 4)
         return TF.adjust_hue(changed, rng.uniform(-hue, hue))
+    if name == "brightness":
+        if spec.value < 0:
+            raise ValueError(f"亮度因子必须非负，实际为：{spec.value}")
+        return TF.adjust_brightness(image, spec.value)
+    if name == "contrast":
+        if spec.value < 0:
+            raise ValueError(f"对比度因子必须非负，实际为：{spec.value}")
+        return TF.adjust_contrast(image, spec.value)
+    if name == "saturation":
+        if spec.value < 0:
+            raise ValueError(f"饱和度因子必须非负，实际为：{spec.value}")
+        return TF.adjust_saturation(image, spec.value)
+    if name == "hue":
+        if not -0.5 <= spec.value <= 0.5:
+            raise ValueError(f"色相偏移必须在 [-0.5, 0.5]，实际为：{spec.value}")
+        return TF.adjust_hue(image, spec.value)
+    if name == "white_balance_temperature":
+        return adjust_white_balance_temperature(image, spec.value)
     if name == "occlusion":
         if not 0 < spec.value < 1:
             raise ValueError(f"遮挡比例必须在 (0, 1)，实际为 {spec.value}。")

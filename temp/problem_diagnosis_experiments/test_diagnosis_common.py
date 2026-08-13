@@ -16,6 +16,7 @@ sys.path.insert(0, str(EXPERIMENT_DIR))
 
 from diagnosis_common import (  # noqa: E402
     PerturbationSpec,
+    adjust_white_balance_temperature,
     apply_perturbation,
     classification_metrics,
     infer_parent_id,
@@ -68,6 +69,50 @@ class DiagnosisCommonTests(unittest.TestCase):
         # 错误共 3 个，其中只有 1->2 是相邻错误。
         self.assertAlmostEqual(metrics["adjacent_error_fraction"], 1 / 3)
         self.assertAlmostEqual(metrics["far_error_fraction"], 2 / 3)
+
+    def test_color_components_are_independent_and_deterministic(self) -> None:
+        """拆分颜色算子应可复现，并且不同分量产生不同像素结果。"""
+
+        yy, xx = np.mgrid[0:32, 0:40]
+        array = np.stack(
+            [
+                20 + xx * 4,
+                30 + yy * 5,
+                40 + (xx + yy) * 2,
+            ],
+            axis=2,
+        ).clip(0, 255).astype(np.uint8)
+        image = Image.fromarray(array)
+        specs = [
+            PerturbationSpec("brightness", 0.8),
+            PerturbationSpec("contrast", 0.8),
+            PerturbationSpec("saturation", 0.7),
+            PerturbationSpec("hue", 0.05),
+            PerturbationSpec("white_balance_temperature", 0.15),
+        ]
+        outputs = []
+        for spec in specs:
+            first = np.asarray(apply_perturbation(image, spec, "sample", 2026))
+            second = np.asarray(apply_perturbation(image, spec, "sample", 2026))
+            self.assertTrue(np.array_equal(first, second))
+            self.assertFalse(np.array_equal(first, array))
+            outputs.append(first)
+        self.assertEqual(len({output.tobytes() for output in outputs}), len(outputs))
+
+    def test_temperature_direction_and_mean_luminance(self) -> None:
+        """暖色应提高红蓝比，同时不应明显改变全图平均亮度。"""
+
+        image = Image.fromarray(np.full((40, 50, 3), [110, 130, 150], dtype=np.uint8))
+        warm = np.asarray(adjust_white_balance_temperature(image, 0.15), dtype=np.float32)
+        cool = np.asarray(adjust_white_balance_temperature(image, -0.15), dtype=np.float32)
+        self.assertGreater(warm[..., 0].mean() / warm[..., 2].mean(), 110 / 150)
+        self.assertLess(cool[..., 0].mean() / cool[..., 2].mean(), 110 / 150)
+        weights = np.asarray([0.2126, 0.7152, 0.0722], dtype=np.float32)
+        original_luminance = (np.asarray(image, dtype=np.float32) * weights).sum(2).mean()
+        warm_luminance = (warm * weights).sum(2).mean()
+        cool_luminance = (cool * weights).sum(2).mean()
+        self.assertLess(abs(warm_luminance - original_luminance), 1.0)
+        self.assertLess(abs(cool_luminance - original_luminance), 1.0)
 
 
 if __name__ == "__main__":

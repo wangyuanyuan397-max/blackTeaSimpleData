@@ -7,6 +7,13 @@ import unittest
 
 from audit_source_groups import add_bh_q_values, fisher_two_sided, parse_source_stem
 from select_fusion_on_validation import candidate_key, paired_correctness_comparison
+from run_color_component_experiments import (
+    ColorComponentConfig,
+    build_conditions as build_color_conditions,
+    conditions_for_split as color_conditions_for_split,
+    condition_name as color_condition_name,
+    validate_config as validate_color_config,
+)
 
 
 class DiagnosticClosureTests(unittest.TestCase):
@@ -62,6 +69,48 @@ class DiagnosticClosureTests(unittest.TestCase):
         self.assertEqual(result["fusion_gained_correct"], 1)
         self.assertEqual(result["fusion_lost_correct"], 1)
         self.assertEqual(result["mcnemar_exact_two_sided_p"], 1.0)
+
+    def test_color_conditions_cover_five_independent_components(self) -> None:
+        """默认颜色实验应包含原图和五类各四档单因素条件。"""
+
+        config = ColorComponentConfig()
+        validate_color_config(config)
+        conditions = build_color_conditions(config)
+        counts: dict[str, int] = {}
+        names = []
+        for condition in conditions:
+            counts[condition.name] = counts.get(condition.name, 0) + 1
+            names.append(color_condition_name(condition))
+        self.assertEqual(counts["original"], 1)
+        for component in (
+            "brightness",
+            "contrast",
+            "saturation",
+            "hue",
+            "white_balance_temperature",
+        ):
+            self.assertEqual(counts[component], 4)
+        self.assertEqual(len(names), 21)
+        self.assertEqual(len(set(names)), len(names))
+
+    def test_color_test_requires_and_obeys_frozen_conditions(self) -> None:
+        """测试集必须拒绝全量搜索，只允许明确冻结的颜色条件。"""
+
+        from dataclasses import replace
+
+        unsafe = replace(ColorComponentConfig(), split="test")
+        with self.assertRaises(ValueError):
+            validate_color_config(unsafe)
+        safe = replace(
+            unsafe,
+            frozen_test_conditions=(("brightness", 0.70), ("hue", -0.06)),
+        )
+        validate_color_config(safe)
+        conditions = color_conditions_for_split(safe)
+        self.assertEqual(
+            [(condition.name, condition.value) for condition in conditions],
+            [("original", 0.0), ("brightness", 0.70), ("hue", -0.06)],
+        )
 
 
 if __name__ == "__main__":

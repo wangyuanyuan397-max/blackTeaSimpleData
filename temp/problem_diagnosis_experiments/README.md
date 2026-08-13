@@ -9,7 +9,7 @@
 3. **单局部与多局部**：每个局部尺度同时报告中心单 crop 和固定多 crop 概率平均，避免把视野尺度与集成增益混为一谈。
 4. **局部证据分布**：对同一 checkpoint 做 `10%～50%` 的随机矩形遮挡，默认重复 3 次。
 5. **空间关系**：`3×3 patch shuffle` 保留局部像素内容但破坏全局布局。
-6. **颜色与纹理**：灰度、Gaussian blur、确定性 color jitter，以及“粗区域内细块打乱”的 texture shuffle。
+6. **颜色与纹理**：灰度、Gaussian blur、综合色扰动，以及亮度/对比度/饱和度/色相/白平衡独立扰动和“粗区域内细块打乱”的 texture shuffle。
 7. **有序错误**：每个条件自动输出 confusion matrix、MAE、QWK、相邻错误占比和远距离错误占比。
 8. **来源组审计**：解析 `4-1/4-2` 这类文件名，检查来源组是否跨 train/val/test，并对错误富集做 Fisher 检验与 BH-FDR 校正。
 9. **多随机种子**：只复现 `408/204/102` 三个优先尺度，报告均值、样本标准差与范围。
@@ -55,8 +55,9 @@ datasets_01234_original_split/
 2. 右键运行 `audit_source_groups.py`，先核查文件名来源组；
 3. 右键运行 `select_fusion_on_validation.py`，在验证集选组合并冻结测试；
 4. 右键运行 `run_selected_scales_multiseed.py`，复现精选尺度；
-5. 如需受控破坏，再运行 `run_perturbation_experiments.py`；
-6. 最后运行 `summarize_diagnosis.py` 生成原诊断汇总。
+5. 右键运行 `run_color_component_experiments.py`，拆分颜色依赖；
+6. 如需其他受控破坏，再运行 `run_perturbation_experiments.py`；
+7. 最后运行 `summarize_diagnosis.py` 生成原诊断汇总。
 
 请在 PyCharm 中选择已安装项目依赖的解释器。依赖复用项目现有 `requirements.txt`，无需安装额外包。
 
@@ -163,7 +164,49 @@ seeds = (2026, 3407, 42)
 
 每个 seed 独立训练，只报告各尺度的 single/multi-view，不枚举测试集融合。输出 `per_seed_results.csv`、`multiseed_summary.csv` 与 `MULTISEED_REPORT.md`。这一步计算量大；脚本可跳过已经生成完整 `summary.csv` 的 seed，但一个未完成 seed 会从该 seed 的第一个尺度重跑。
 
-## 6. 受控破坏实验
+## 6. 颜色分量独立扰动
+
+直接右键运行 `run_color_component_experiments.py`。默认复用已有 `crop_408/best.pth`，并先在 `val` 上使用 5 个固定区域聚合。无需命令行参数。
+
+默认条件为：
+
+```text
+Original
+Brightness factor 0.70, 0.85, 1.15, 1.30
+Contrast factor 0.70, 0.85, 1.15, 1.30
+Saturation factor 0.50, 0.75, 1.25, 1.50
+Hue shift -0.06, -0.03, +0.03, +0.06
+White balance/temperature -0.20, -0.10, +0.10, +0.20
+```
+
+其中正色温表示偏暖，负色温表示偏冷；变换会近似保持整图平均亮度，减少和 brightness 的混杂。每个条件只启用一个算子，不再把四种颜色变化混在同一个 `color_jitter` 中。
+
+输出位于：
+
+```text
+results/color_components/val/
+├── COLOR_COMPONENT_REPORT.md
+├── summary.csv
+├── summary.json
+└── 各条件预测明细/
+```
+
+报告同时使用 Accuracy、NLL、QWK、原图级得失数和精确 McNemar p。当前 val 只有 20 张，单张就是 5 个百分点，因此还要重点看正负方向及强度增加时是否存在一致剂量趋势。
+
+在 val 上固定最终强度和判读规则后，如确实需要最后一次测试，必须同时修改：
+
+```python
+split = "test"
+frozen_test_conditions = (
+    ("brightness", 0.70),
+    ("hue", -0.06),
+    # 此处仅填写根据 val 预先确定的条件。
+)
+```
+
+若冻结条件为空，脚本会拒绝访问 test；它也会拒绝未出现在 val 候选配置中的强度，防止在测试集继续枚举调参。不要根据 test 掉点幅度再次修改条件。
+
+## 7. 受控破坏实验
 
 `run_perturbation_experiments.py` 顶部默认诊断 `crop_204/best.pth`：
 
@@ -193,7 +236,7 @@ Texture shuffle macro 2×2, micro 4×4
 
 建议先把顶部 `split` 改成 `"val"` 确定扰动强度；测试集只做最后一次冻结评估，避免反复窥视测试结果。
 
-## 7. 生成诊断报告
+## 8. 生成诊断报告
 
 直接右键运行 `summarize_diagnosis.py`。
 
@@ -212,7 +255,7 @@ results/DIAGNOSIS_REPORT.json
 
 冻结融合的正式结论以 `results/frozen_fusion/FROZEN_FUSION_RESULT.md` 为准，不要用旧报告中的最佳测试集融合。
 
-## 8. 结果怎么解释
+## 9. 结果怎么解释
 
 建议使用以下证据组合，而不是孤立看一个数字：
 
@@ -222,6 +265,7 @@ results/DIAGNOSIS_REPORT.json
 | 全局与局部互补 | 单尺度各自有效；融合稳定优于最佳单尺度；不同 seed 可复现 |
 | 空间布局重要 | patch shuffle 在重复后稳定大幅下降；但颜色直方图等仍基本保留 |
 | 纹理重要 | blur/texture shuffle 稳定下降；灰度结果可帮助区分颜色与纹理贡献 |
+| 亮度/色调/饱和度依赖 | 对应独立颜色分量在正负方向或剂量增加时稳定恶化，并由 NLL、配对得失共同支持 |
 | 相邻阶段边界模糊 | 相邻错误占全部错误比例高；MAE/QWK 与 confusion matrix 一致支持 |
 
 不要把 `Local branch +2%`、某次遮挡掉点或一次融合涨点单独写成因果证明。正式结论建议补 3 个训练随机种子，并以原图为独立单位做配对统计。
