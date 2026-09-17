@@ -39,7 +39,6 @@ spec:
         buildDiscarder(logRotator(numToKeepStr: '20'))
         disableConcurrentBuilds()
         skipDefaultCheckout(true)
-        timestamps()
     }
 
     triggers {
