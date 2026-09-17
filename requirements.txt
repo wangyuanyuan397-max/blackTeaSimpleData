@@ -8,5 +8,7 @@ PyYAML
 pydantic>=2
 scikit-learn
 matplotlib
+seaborn
 structlog
 tqdm
+omegaconf
