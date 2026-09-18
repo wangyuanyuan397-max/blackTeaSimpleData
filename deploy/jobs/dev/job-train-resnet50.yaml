@@ -1,0 +1,93 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: black-tea-resnet50-296a4b3-r2
+  namespace: p-wyy-black-tea-dev
+  labels:
+    app.kubernetes.io/name: black-tea-simple-data
+    app.kubernetes.io/component: training
+    app.kubernetes.io/version: git-296a4b345a03
+    kueue.x-k8s.io/queue-name: shared
+spec:
+  suspend: true
+  backoffLimit: 0
+  activeDeadlineSeconds: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: black-tea-simple-data
+        app.kubernetes.io/component: training
+        app.kubernetes.io/version: git-296a4b345a03
+    spec:
+      restartPolicy: Never
+      terminationGracePeriodSeconds: 60
+      imagePullSecrets:
+        - name: harbor-black-tea-simple-pull
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: trainer
+          image: 10.43.250.50/black-tea-simple/black-tea-simple-data:git-296a4b345a03
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+          args:
+            - |
+              set -eu
+              test -d /data/datasets/datasets_01234_grid30_408/train
+              test -d /data/datasets/datasets_01234_grid30_408/val
+              test -d /data/datasets/datasets_01234_grid30_408/test
+              mkdir -p /data/runs/datasets_01234_grid30_408
+              python -c 'import torch; print("torch:", torch.__version__); print("cuda available:", torch.cuda.is_available()); print("gpu count:", torch.cuda.device_count()); assert torch.cuda.is_available()'
+              exec python tools/train_batch.py \
+                --common-config configs/k8s/fixed_split_01234_grid30_408_train.yaml \
+                --models fixed_resnet50 \
+                --device cuda \
+                --keep-pth \
+                --fail-fast
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: TORCH_HOME
+              value: /data/runs/.cache/torch
+            - name: XDG_CACHE_HOME
+              value: /data/runs/.cache
+          resources:
+            requests:
+              cpu: "4"
+              memory: 16Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "8"
+              memory: 32Gi
+              nvidia.com/gpu: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: dataset
+              mountPath: /data/datasets
+              readOnly: true
+            - name: runs
+              mountPath: /data/runs
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: dataset
+          persistentVolumeClaim:
+            claimName: black-tea-dataset
+        - name: runs
+          persistentVolumeClaim:
+            claimName: black-tea-runs
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 8Gi

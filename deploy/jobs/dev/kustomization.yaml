@@ -3,4 +3,4 @@ kind: Kustomization
 
 resources:
   - job-dry-run.yaml
-
+  - job-train-resnet50.yaml
