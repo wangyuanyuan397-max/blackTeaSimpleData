@@ -2388,9 +2388,9 @@ def load_yaml_mapping(relative_path: Path, config_kind: str) -> Dict[str, Any]:
     return config
 
 
-def load_common_config() -> Dict[str, Any]:
+def load_common_config(common_config_path: Path = COMMON_CONFIG) -> Dict[str, Any]:
     '''读取不包含模型结构的公共训练配置。'''
-    config = load_yaml_mapping(COMMON_CONFIG, '公共训练配置')
+    config = load_yaml_mapping(common_config_path, '公共训练配置')
     required_sections = ('data', 'train', 'optimizer', 'loss')
     missing_sections = [
         section for section in required_sections
@@ -2629,6 +2629,12 @@ def parse_arguments() -> argparse.Namespace:
         description='按照 CONFIG_LIST 顺序运行固定 train/val/test patch 数据集。'
     )
     parser.add_argument(
+        '--common-config',
+        type=Path,
+        default=COMMON_CONFIG,
+        help='公共训练 YAML；默认保持现有本地配置。',
+    )
+    parser.add_argument(
         '--models',
         nargs='+',
         help='只运行指定配置名；名称为 YAML 文件名去掉 .yaml。',
@@ -2686,7 +2692,7 @@ def main() -> None:
             print(f'  - {relative_path.stem}: {relative_path.as_posix()}')
         return
 
-    common_config = load_common_config()
+    common_config = load_common_config(args.common_config)
     keep_pth_files = (
         PYCHARM_KEEP_PTH_FILES
         if args.keep_pth_files is None
@@ -2742,7 +2748,7 @@ def main() -> None:
     ]
     dataset_summary = validate_fixed_dataset(preview_configs[0], device)
     print_dataset_summary(dataset_summary)
-    print(f'公共训练配置：{COMMON_CONFIG.as_posix()}')
+    print(f'公共训练配置：{args.common_config.as_posix()}')
     print('本次模型配置：')
     for relative_path, _ in model_entries:
         print(f'  - {relative_path.as_posix()}')
