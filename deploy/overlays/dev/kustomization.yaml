@@ -5,11 +5,6 @@ namespace: p-wyy-black-tea-dev
 
 resources:
   - ../../base
-  - job-dry-run.yaml
-
-images:
-  - name: 10.43.250.50/black-tea-simple/black-tea-simple-data
-    newTag: git-296a4b345a03
 
 labels:
   - pairs:

@@ -2,6 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: black-tea-config-dry-run
+  namespace: p-wyy-black-tea-dev
   labels:
     app.kubernetes.io/name: black-tea-simple-data
     app.kubernetes.io/component: training-validation
@@ -25,7 +26,7 @@ spec:
         fsGroup: 10001
       containers:
         - name: trainer
-          image: 10.43.250.50/black-tea-simple/black-tea-simple-data
+          image: 10.43.250.50/black-tea-simple/black-tea-simple-data:git-296a4b345a03
           imagePullPolicy: IfNotPresent
           command:
             - sh
