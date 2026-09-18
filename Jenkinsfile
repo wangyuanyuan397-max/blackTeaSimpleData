@@ -7,8 +7,19 @@ apiVersion: v1
 kind: Pod
 spec:
   containers:
+    - name: jnlp
+      image: m.daocloud.io/docker.io/jenkins/inbound-agent:3384.v60d89463d9e0-2-jdk25
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "100m"
+          memory: "256Mi"
+        limits:
+          cpu: "1"
+          memory: "1Gi"
     - name: python
-      image: python:3.11-slim-bookworm
+      image: docker.io/library/python:3.11-slim
+      imagePullPolicy: IfNotPresent
       command: ["sh", "-c"]
       args: ["cat"]
       tty: true
@@ -20,7 +31,8 @@ spec:
           cpu: "1"
           memory: "1Gi"
     - name: buildctl
-      image: moby/buildkit:v0.33.0-rootless@sha256:9391745530c1812ca16a14554813268c3472953f12a060494efc86b9bc4b0e53
+      image: docker.io/moby/buildkit:v0.33.0-rootless
+      imagePullPolicy: IfNotPresent
       command: ["sh", "-c"]
       args: ["cat"]
       tty: true
@@ -66,6 +78,7 @@ spec:
     environment {
         BUILDKIT_HOST = 'tcp://buildkit.platform-build.svc.cluster.local:1234'
         HARBOR_CREDENTIALS_ID = 'harbor-black-tea-simple-push'
+        PYTORCH_UPSTREAM_IMAGE = 'm.daocloud.io/docker.io/pytorch/pytorch:2.11.0-cuda12.8-cudnn9-runtime'
     }
 
     stages {
@@ -79,9 +92,11 @@ spec:
                     ).trim()
                     env.IMAGE_TAG = "git-${env.GIT_SHORT_SHA}"
                     env.IMAGE_REF = "${params.REGISTRY_ENDPOINT}/${params.REGISTRY_PROJECT}/${params.IMAGE_NAME}:${env.IMAGE_TAG}"
+                    env.PYTORCH_BASE_REF = "${params.REGISTRY_ENDPOINT}/${params.REGISTRY_PROJECT}/pytorch:2.11.0-cuda12.8-cudnn9-runtime"
                 }
                 echo "Git revision: ${env.GIT_SHORT_SHA}"
                 echo "Target image: ${env.IMAGE_REF}"
+                echo "PyTorch base mirror: ${env.PYTORCH_BASE_REF}"
             }
         }
 
@@ -114,6 +129,7 @@ spec:
                             # never written to the console log.
                             set +x
                             export DOCKER_CONFIG="${WORKSPACE}/.docker"
+                            trap 'rm -rf "${DOCKER_CONFIG}"' EXIT
                             mkdir -p "${DOCKER_CONFIG}"
                             AUTH="$(printf '%s:%s' "${HARBOR_USERNAME}" "${HARBOR_PASSWORD}" | base64 | tr -d '\n')"
                             printf '{"auths":{"%s":{"auth":"%s"}}}\n' \
@@ -121,6 +137,18 @@ spec:
                                 > "${DOCKER_CONFIG}/config.json"
                             chmod 600 "${DOCKER_CONFIG}/config.json"
 
+                            echo "Mirroring PyTorch base image into Harbor..."
+                            buildctl \
+                                --addr "${BUILDKIT_HOST}" \
+                                build \
+                                --frontend dockerfile.v0 \
+                                --local context=. \
+                                --local dockerfile=. \
+                                --opt filename=Dockerfile.base \
+                                --opt "build-arg:UPSTREAM_IMAGE=${PYTORCH_UPSTREAM_IMAGE}" \
+                                --output "type=image,name=${PYTORCH_BASE_REF},push=true"
+
+                            echo "Building application image..."
                             buildctl \
                                 --addr "${BUILDKIT_HOST}" \
                                 build \
@@ -128,6 +156,7 @@ spec:
                                 --local context=. \
                                 --local dockerfile=. \
                                 --opt filename=Dockerfile \
+                                --opt "build-arg:PYTORCH_IMAGE=${PYTORCH_BASE_REF}" \
                                 --output "type=image,name=${IMAGE_REF},push=true"
                         '''
                     }
@@ -140,10 +169,6 @@ spec:
         success {
             echo "镜像已推送：${env.IMAGE_REF}"
             echo "下一步将 deploy/overlays/dev/kustomization.yaml 的 newTag 更新为 ${env.IMAGE_TAG}，再由 Argo CD 同步。"
-        }
-        always {
-            sh 'rm -rf .docker || true'
-            deleteDir()
         }
     }
 }

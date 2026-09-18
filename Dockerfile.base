@@ -1,0 +1,2 @@
+ARG UPSTREAM_IMAGE=m.daocloud.io/docker.io/pytorch/pytorch:2.11.0-cuda12.8-cudnn9-runtime
+FROM ${UPSTREAM_IMAGE}

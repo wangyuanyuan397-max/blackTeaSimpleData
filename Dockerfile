@@ -1,4 +1,4 @@
-ARG PYTORCH_IMAGE=pytorch/pytorch:2.11.0-cuda12.8-cudnn9-runtime
+ARG PYTORCH_IMAGE=10.43.250.50/black-tea-simple/pytorch:2.11.0-cuda12.8-cudnn9-runtime
 FROM ${PYTORCH_IMAGE}
 
 ARG APP_UID=10001
