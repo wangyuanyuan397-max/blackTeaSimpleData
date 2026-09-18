@@ -6,6 +6,11 @@ pipeline {
 apiVersion: v1
 kind: Pod
 spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
   containers:
     - name: jnlp
       image: m.daocloud.io/docker.io/jenkins/inbound-agent:3384.v60d89463d9e0-2-jdk25
