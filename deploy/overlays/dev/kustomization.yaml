@@ -4,11 +4,8 @@ kind: Kustomization
 namespace: p-wyy-black-tea-dev
 
 resources:
-  - namespace.yaml
-  - localqueue.yaml
   - ../../base
 
 labels:
   - pairs:
       app.kubernetes.io/environment: dev
-
