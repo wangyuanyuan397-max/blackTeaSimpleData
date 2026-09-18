@@ -89,12 +89,9 @@ spec:
     stages {
         stage('Checkout') {
             steps {
-                checkout scm
                 script {
-                    env.GIT_SHORT_SHA = sh(
-                        script: 'git rev-parse --short=12 HEAD',
-                        returnStdout: true
-                    ).trim()
+                    def scmVars = checkout scm
+                    env.GIT_SHORT_SHA = scmVars.GIT_COMMIT.substring(0, 12)
                     env.IMAGE_TAG = "git-${env.GIT_SHORT_SHA}"
                     env.IMAGE_REF = "${params.REGISTRY_ENDPOINT}/${params.REGISTRY_PROJECT}/${params.IMAGE_NAME}:${env.IMAGE_TAG}"
                     env.PYTORCH_BASE_REF = "${params.REGISTRY_ENDPOINT}/${params.REGISTRY_PROJECT}/pytorch:2.11.0-cuda12.8-cudnn9-runtime"
