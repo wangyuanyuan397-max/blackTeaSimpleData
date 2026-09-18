@@ -3,6 +3,6 @@ kind: Namespace
 metadata:
   name: p-wyy-black-tea-dev
   labels:
-    app.kubernetes.io/part-of: black-tea-simple
+    app.kubernetes.io/name: black-tea-simple
+    app.kubernetes.io/part-of: lab-projects
     app.kubernetes.io/environment: dev
-
