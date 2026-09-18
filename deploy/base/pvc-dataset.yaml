@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: black-tea-dataset
+  labels:
+    app.kubernetes.io/component: dataset
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: lab-local-retain
+  resources:
+    requests:
+      storage: 50Gi
+

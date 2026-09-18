@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - pvc-dataset.yaml
+  - pvc-runs.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/name: black-tea-simple-data
+      app.kubernetes.io/part-of: black-tea-simple
+      app.kubernetes.io/managed-by: argocd
+
