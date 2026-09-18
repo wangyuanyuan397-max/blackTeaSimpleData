@@ -8,14 +8,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 \
+    PIP_BREAK_SYSTEM_PACKAGES=1 \
     MPLBACKEND=Agg \
     HOME=/home/app
 
 WORKDIR /app
 
 # The base image supplies the CUDA-matched torch and torchvision builds.
-# Keeping those packages in requirements.txt is safe: pip sees the pinned base
-# installations as already satisfied instead of replacing them with CPU wheels.
+# This is an immutable application image layer, so allow pip to add the
+# remaining dependencies to the base image's PEP 668-managed Python.
 COPY requirements.txt ./requirements.txt
 RUN python -m pip install --no-cache-dir -r requirements.txt
 
